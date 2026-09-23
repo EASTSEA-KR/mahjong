@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>마작 손패 분석</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+<style>
+  :root{
+    --bg:#12201a;
+    --bg-weave: rgba(255,255,255,0.02);
+    --panel:#1c2e25;
+    --panel-2:#22392d;
+    --line: rgba(199,154,70,0.28);
+    --line-soft: rgba(199,154,70,0.14);
+    --ivory:#f2ead9;
+    --ivory-dim:#e4dac2;
+    --ink:#241f16;
+    --ink-blue:#1d2a3d;
+    --ink-green:#1d3324;
+    --gold:#c99a46;
+    --gold-bright:#e0b968;
+    --red:#b3402a;
+    --red-bright:#d1553b;
+    --text:#ece5d6;
+    --text-dim:#9fb1a3;
+    --text-faint:#6c8074;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{margin:0; padding:0;}
+  body{
+    background-color: var(--bg);
+    background-image:
+      repeating-linear-gradient(135deg, var(--bg-weave) 0px, var(--bg-weave) 1px, transparent 1px, transparent 8px),
+      radial-gradient(circle at 50% -10%, rgba(201,154,70,0.08), transparent 55%);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+  .wrap{ max-width: 480px; margin: 0 auto; padding: 28px 18px 10px; }
+
+  header{ text-align:left; padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+  header h1{
+    font-family:'Noto Serif KR', serif; font-weight:700; font-size: 26px; letter-spacing: -0.3px;
+    margin: 0 0 6px; color: var(--ivory);
+  }
+  header p{ margin:0; color: var(--text-dim); font-size: 13.5px; line-height:1.6; }
+
+  .card{
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card-title{
+    font-family:'Noto Serif KR', serif; font-weight:700; font-size:15px; color: var(--gold-bright);
+    margin: 0 0 12px; display:flex; align-items:center; gap:8px;
+  }
+  .card-title .n{ color: var(--text-faint); font-weight:400; font-size:12px; font-family:'Noto Sans KR',sans-serif; }
+
+  /* buttons */
+  .btn{
+    font-family:'Noto Sans KR',sans-serif; font-size:14px; font-weight:500;
+    border-radius: 8px; padding: 11px 14px; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02); color: var(--text); cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    transition: background .15s ease, border-color .15s ease, transform .05s ease;
+  }
+  .btn:active{ transform: scale(0.98); }
+  .btn:hover{ border-color: var(--gold); background: rgba(201,154,70,0.08); }
+  .btn-primary{ background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight:700; }
+  .btn-primary:hover{ background: var(--gold-bright); }
+  .btn-red{ background: var(--red); color: var(--ivory); border-color: var(--red); }
+  .btn-red:hover{ background: var(--red-bright); }
+  .btn-ghost{ background:transparent; border-color: var(--line-soft); color: var(--text-dim); }
+  .btn-sm{ padding: 7px 10px; font-size: 12.5px; border-radius:7px; }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn[disabled]{ opacity:.4; cursor:default; }
+
+  /* tiles */
+  .tile{
+    width: 34px; height: 46px; min-width:34px;
+    background: linear-gradient(180deg, var(--ivory), var(--ivory-dim));
+    border-radius: 5px;
+    border: 1px solid rgba(0,0,0,0.25);
+    box-shadow: 0 2px 0 rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.4);
+    display:flex; align-items:center; justify-content:center;
+    font-size: 24px; line-height:1; color: var(--ink);
+    cursor:pointer; user-select:none; position:relative; flex-shrink:0;
+  }
+  .tile.small{ width:28px; height:38px; font-size:19px; border-radius:4px; }
+  .tile.suit-p{ color: var(--ink-blue); }
+  .tile.suit-s{ color: var(--ink-green); }
+  .tile.suit-z-dragon{ color: var(--red); }
+  .tile.selected{ outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+  .tile.win-marker{ outline: 2px solid var(--red-bright); outline-offset: 2px; }
+  .tile-add{
+    width:34px; height:46px; border-radius:5px; border: 1.5px dashed var(--line);
+    display:flex; align-items:center; justify-content:center; color: var(--text-faint);
+    font-size:20px; cursor:pointer; flex-shrink:0;
+  }
+  .tile-add:hover{ border-color: var(--gold); color: var(--gold-bright); }
+  .hand-row{ display:flex; gap:5px; flex-wrap:wrap; }
+  .count-note{ margin-top:10px; font-size:12px; color: var(--text-faint); }
+
+  /* toggle */
+  .switch-row{ display:flex; align-items:center; justify-content:space-between; padding: 4px 0; }
+  .switch-label{ font-size:14px; }
+  .switch-sub{ font-size:11.5px; color: var(--text-faint); margin-top:2px; }
+  .switch{ width:46px; height:26px; border-radius:20px; background:#0d1712; border:1px solid var(--line); position:relative; cursor:pointer; flex-shrink:0; }
+  .switch .knob{ width:20px; height:20px; border-radius:50%; background: var(--text-dim); position:absolute; top:2px; left:2px; transition: all .15s ease; }
+  .switch.on{ background: var(--red); border-color: var(--red); }
+  .switch.on .knob{ left: 22px; background: var(--ivory); }
+
+  .seg{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button{ flex:1; padding:9px; background:transparent; border:none; color: var(--text-dim); font-family:'Noto Sans KR'; font-size:13px; cursor:pointer; }
+  .seg button.active{ background: var(--gold); color: var(--ink); font-weight:700; }
+
+  .num-input-row{ display:flex; align-items:center; gap:10px; }
+  .num-input-row input[type=number]{
+    width:64px; background:#0d1712; border:1px solid var(--line); border-radius:7px; color:var(--text);
+    padding:8px; font-size:14px; text-align:center; font-family:'Noto Sans KR';
+  }
+
+  /* status */
+  .status-hero{ text-align:center; padding: 6px 0 4px; }
+  .status-num{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:40px; color: var(--gold-bright); line-height:1; }
+  .status-label{ font-size:13px; color: var(--text-dim); margin-top:6px; }
+
+  .yaku-item{
+    display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .yaku-item:last-child{ border-bottom:none; }
+  .yaku-name{ font-size:14px; font-weight:500; }
+  .yaku-desc{ font-size:11.5px; color: var(--text-faint); margin-top:2px; }
+  .yaku-han{ font-size:13px; color: var(--gold-bright); white-space:nowrap; font-weight:700; }
+
+  .wait-grid{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .wait-item{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .wait-item .cnt{ font-size:10.5px; color: var(--text-faint); }
+
+  .discard-pick{
+    display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line-soft);
+  }
+  .discard-pick:last-child{ border-bottom:none; }
+  .discard-pick .rank{ font-family:'Noto Serif KR'; font-weight:700; color: var(--gold-bright); font-size:15px; width:18px; }
+  .discard-pick .info{ font-size:12.5px; color: var(--text-dim); line-height:1.5; }
+  .discard-pick .info b{ color: var(--text); }
+
+  .score-total{ text-align:center; padding: 10px 0 6px; }
+  .score-total .pts{ font-family:'Noto Serif KR'; font-weight:700; font-size:34px; color: var(--red-bright); }
+  .score-total .tier{ font-size:13px; color: var(--gold-bright); margin-top:2px; }
+  .score-detail{ text-align:center; font-size:12.5px; color: var(--text-dim); margin-top:4px; }
+  .hanfu-line{ text-align:center; font-size:13px; color: var(--text-dim); margin-top:8px; }
+
+  .empty-note{ color: var(--text-faint); font-size:13px; text-align:center; padding: 18px 6px; line-height:1.7; }
+  .warn-box{ background: rgba(179,64,42,0.12); border:1px solid rgba(179,64,42,0.4); border-radius:8px; padding:10px 12px; font-size:12.5px; color:#e6b8ab; margin-top:8px; }
+
+  /* modal */
+  .overlay{ position:fixed; inset:0; background: rgba(6,10,8,0.72); display:none; align-items:flex-end; justify-content:center; z-index:50; }
+  .overlay.show{ display:flex; }
+  .modal{
+    width:100%; max-width:480px; background: var(--panel); border-top-left-radius:16px; border-top-right-radius:16px;
+    border: 1px solid var(--line); border-bottom:none; padding: 18px 16px 22px; max-height:80vh; overflow-y:auto;
+  }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .modal-head h3{ font-family:'Noto Serif KR'; font-size:16px; margin:0; color: var(--ivory); }
+  .modal-close{ background:none; border:none; color: var(--text-dim); font-size:22px; cursor:pointer; line-height:1; padding:4px; }
+  .picker-suit-label{ font-size:11.5px; color: var(--text-faint); margin: 12px 0 6px; }
+  .picker-grid{ display:grid; grid-template-columns: repeat(9, 1fr); gap:5px; }
+  .picker-cell{ display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .picker-cell .tile{ width:100%; height:42px; font-size:20px; }
+  .picker-cell .ct{ font-size:9.5px; color: var(--text-faint); }
+  .picker-cell.disabled .tile{ opacity:0.25; cursor:default; }
+
+  .loading-overlay{ position:fixed; inset:0; background:rgba(6,10,8,0.85); display:none; align-items:center; justify-content:center; z-index:60; flex-direction:column; gap:14px; }
+  .loading-overlay.show{ display:flex; }
+  .spinner{ width:40px; height:40px; border-radius:50%; border:3px solid var(--line-soft); border-top-color: var(--gold-bright); animation: spin 0.9s linear infinite; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  .loading-text{ color: var(--text-dim); font-size:13.5px; }
+
+  footer{ max-width:480px; margin: 18px auto 0; padding: 0 18px; font-size:11px; color: var(--text-faint); line-height:1.8; text-align:center; }
+
+  input[type=file]{ display:none; }
+  @media (min-width:480px){ .tile{ width:36px; } .tile.small{ width:30px; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>마작 손패 분석</h1>
+    <p>손패 사진을 찍으면 노릴 역, 버릴 패, 화료 점수를 알려드려요.</p>
+  </header>
+
+  <div class="card">
+    <div class="card-title">인식 모델 상태</div>
+    <div class="switch-sub" style="margin-bottom:8px; line-height:1.6;">
+      이 앱은 <b>내 기기 안에서만</b> 패를 인식해요. 사진은 외부로 전송되지 않고, 인터넷 연결 없이도 동작해요.
+      같은 폴더에 <code>mahjong-tile-model.onnx</code> 파일이 함께 있어야 해요.
+    </div>
+    <div id="modelStatus" class="count-note">모델을 불러오는 중...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">손패 인식</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnCamera">📷 카메라로 촬영</button>
+      <button class="btn btn-ghost" id="btnUpload">사진 업로드</button>
+    </div>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment">
+    <input type="file" id="uploadInput" accept="image/*">
+    <div id="apiError"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">현재 손패 <span class="n" id="handCountLabel"></span></div>
+    <div class="hand-row" id="handRow"></div>
+    <div class="count-note">패를 탭하면 수정하거나 지울 수 있어요. 13장이면 대기 상태, 14장이면 버릴 패를 계산해요.</div>
+  </div>
+
+  <div class="card">
+    <div class="switch-row">
+      <div>
+        <div class="switch-label">리치 선언 상태</div>
+        <div class="switch-sub">리치 중에는 뽑은 패를 그대로 버려야 해요</div>
+      </div>
+      <div class="switch" id="riichiSwitch"><div class="knob"></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">현재 상태</div>
+    <div class="status-hero">
+      <div class="status-num" id="statusNum">-</div>
+      <div class="status-label" id="statusLabel">패를 먼저 등록해주세요</div>
+    </div>
+  </div>
+
+  <div class="card" id="candidateCard" style="display:none;">
+    <div class="card-title">노릴만한 역 후보</div>
+    <div id="candidateList"></div>
+  </div>
+
+  <div class="card" id="discardCard" style="display:none;">
+    <div class="card-title">추천 버릴 패</div>
+    <div id="discardList"></div>
+  </div>
+
+  <div class="card" id="waitCard" style="display:none;">
+    <div class="card-title">텐파이 — 대기 패</div>
+    <div class="wait-grid" id="waitGrid"></div>
+  </div>
+
+  <div class="card" id="completeCard" style="display:none;">
+    <div class="card-title">화료 옵션</div>
+    <div style="margin-bottom:12px;">
+      <div class="switch-sub" style="margin-bottom:6px;">화료 방식</div>
+      <div class="seg" id="tsumoRonSeg">
+        <button data-v="ron" class="active">론 (상대 패로 완성)</button>
+        <button data-v="tsumo">쯔모 (직접 뽑아 완성)</button>
+      </div>
+    </div>
+    <div class="switch-row" style="margin-bottom:6px;">
+      <div class="switch-label">오야(딜러)인가요?</div>
+      <div class="switch" id="dealerSwitch"><div class="knob"></div></div>
+    </div>
+    <div class="num-input-row" style="margin: 10px 0 14px;">
+      <span class="switch-sub">도라 개수</span>
+      <input type="number" id="doraInput" min="0" max="10" value="0">
+    </div>
+    <div class="switch-sub" style="margin-bottom:6px;">화료 패 (정확한 점수 계산을 위해 선택)</div>
+    <div class="hand-row" id="winTilePicker"></div>
+  </div>
+
+  <div class="card" id="scoreCard" style="display:none;">
+    <div class="card-title">완성! 역과 점수</div>
+    <div id="yakuFinalList"></div>
+    <div id="scoreResult"></div>
+  </div>
+
+  <footer>
+    이 도구는 참고용 보조 계산기예요. 콜패(치·퐁·깡)로 만든 조합, 자리·판 바람, 이파츠·하이테이 등 일부 특수 역은 정확히 반영되지 않을 수 있어요. 실제 판정은 함께하는 분들과 확인해주세요.<br><br>
+    패 인식 모델은 <a href="https://universe.roboflow.com/personal-ef39c/mahjong-tiles-model" target="_blank" style="color:var(--text-faint);">Mahjong Tiles Model (Roboflow Universe, CC BY 4.0)</a> 데이터셋으로 학습했어요.
+  </footer>
+</div>
+
+<div class="overlay" id="pickerOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="pickerTitle">패 선택</h3>
+      <button class="modal-close" id="pickerClose">×</button>
+    </div>
+    <div id="pickerBody"></div>
+    <div class="btn-row" style="margin-top:14px;">
+      <button class="btn btn-red btn-sm" id="pickerRemove" style="display:none;">이 패 삭제</button>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">사진에서 패를 인식하는 중...</div>
+</div>
+
+<script>
+/* ===================== 데이터 정의 ===================== */
+const GLYPHS = {
+  m: ['🀇','🀈','🀉','🀊','🀋','🀌','🀍','🀎','🀏'],
+  p: ['🀙','🀚','🀛','🀜','🀝','🀞','🀟','🀠','🀡'],
+  s: ['🀐','🀑','🀒','🀓','🀔','🀕','🀖','🀗','🀘'],
+  z: ['🀀','🀁','🀂','🀃','🀆','🀅','🀄']
+};
+const HONOR_NAMES = ['동','남','서','북','백','발','중'];
+const DRAGON_START = 31; // z5,z6,z7 -> index 31,32,33
+const TERMINALS_HONORS = [0,8,9,17,18,26,27,28,29,30,31,32,33];
+
+function tileIndex(code){
+  const suit = code[0], num = parseInt(code.slice(1),10);
+  if(suit==='m') return num-1;
+  if(suit==='p') return 9+num-1;
+  if(suit==='s') return 18+num-1;
+  return 27+num-1;
+}
+function indexToCode(i){
+  if(i<9) return 'm'+(i+1);
+  if(i<18) return 'p'+(i-9+1);
+  if(i<27) return 's'+(i-18+1);
+  return 'z'+(i-27+1);
+}
+function suitOf(i){ return i<9?'m':i<18?'p':i<27?'s':'z'; }
+function glyphOf(i){
+  const s=suitOf(i);
+  if(s==='z') return GLYPHS.z[i-27];
+  return GLYPHS[s][i%9];
+}
+function isTerminal(i){ return i<27 && (i%9===0 || i%9===8); }
+function isHonor(i){ return i>=27; }
+function isTerminalOrHonor(i){ return isTerminal(i) || isHonor(i); }
+function tileKor(i){
+  if(isHonor(i)) return HONOR_NAMES[i-27]+' (자패)';
+  const s=suitOf(i)==='m'?'만':suitOf(i)==='p'?'통':'삭';
+  return (i%9+1)+s;
+}
+function ALL_CODES(){
+  const arr=[];
+  for(let i=0;i<34;i++) arr.push(indexToCode(i));
+  return arr;
+}
+
+/* ===================== 상태 ===================== */
+const state = {
+  hand: [],          // array of tile codes, e.g. 'm1'
+  riichi: false,
+  isDealer: false,
+  method: 'ron',      // 'ron' | 'tsumo'
+  dora: 0,
+  winTile: null,      // tile code or null
+  redFivesDetected: 0
+};
+
+/* ===================== 샹텐 계산 엔진 ===================== */
+function emptyCounts(){ return new Array(34).fill(0); }
+function countsFromHand(hand){
+  const c = emptyCounts();
+  hand.forEach(code=>{ c[tileIndex(code)]++; });
+  return c;
+}
+
+function standardShanten(counts){
+  const c = counts.slice();
+  let best = 8;
+  function finalize(melds, pairs, partials){
+    const hasPair = pairs>=1;
+    const extra = hasPair ? pairs-1 : 0;
+    let blocks = melds+partials+extra;
+    if(blocks>4) blocks=4;
+    const usedPartials = blocks - melds;
+    const sh = 8 - 2*melds - usedPartials - (hasPair?1:0);
+    if(sh<best) best=sh;
+  }
+  function rec(i, melds, pairs, partials){
+    if(i===34){ finalize(melds,pairs,partials); return; }
+    if(c[i]===0){ rec(i+1,melds,pairs,partials); return; }
+    if(c[i]>=3){ c[i]-=3; rec(i,melds+1,pairs,partials); c[i]+=3; }
+    if(i<27 && i%9<=6 && c[i+1]>0 && c[i+2]>0){
+      c[i]--;c[i+1]--;c[i+2]--; rec(i,melds+1,pairs,partials); c[i]++;c[i+1]++;c[i+2]++;
+    }
+    if(c[i]>=2){ c[i]-=2; rec(i,melds,pairs+1,partials); c[i]+=2; }
+    if(i<27 && i%9<=7 && c[i+1]>0){ c[i]--;c[i+1]--; rec(i,melds,pairs,partials+1); c[i]++;c[i+1]++; }
+    if(i<27 && i%9<=6 && c[i+2]>0){ c[i]--;c[i+2]--; rec(i,melds,pairs,partials+1); c[i]++;c[i+2]++; }
+    rec(i+1,melds,pairs,partials);
+  }
+  rec(0,0,0,0);
+  return best;
+}
+function chiitoiShanten(counts){
+  let pairs=0, kinds=0;
+  for(let i=0;i<34;i++){ if(counts[i]>0) kinds++; if(counts[i]>=2) pairs++; }
+  return 6-pairs+Math.max(0,7-kinds);
+}
+function kokushiShanten(counts){
+  let kinds=0, hasPair=false;
+  TERMINALS_HONORS.forEach(i=>{ if(counts[i]>0) kinds++; if(counts[i]>=2) hasPair=true; });
+  return 13-kinds-(hasPair?1:0);
+}
+function overallShanten(counts){
+  return Math.min(standardShanten(counts), chiitoiShanten(counts), kokushiShanten(counts));
+}
+
+function waitingTiles(counts13){
+  const waits=[];
+  for(let t=0;t<34;t++){
+    if(counts13[t]>=4) continue;
+    counts13[t]++;
+    if(overallShanten(counts13)===-1) waits.push(t);
+    counts13[t]--;
+  }
+  return waits;
+}
+
+/* ===================== 완성패 분해 & 역 판정 ===================== */
+function findDecomposition(counts){
+  const c = counts.slice();
+  let result = null;
+  function rec(i, melds, pair){
+    if(result) return;
+    if(i===34){ if(melds.length===4 && pair) result = { melds: melds.slice(), pair }; return; }
+    if(c[i]===0){ rec(i+1,melds,pair); return; }
+    if(c[i]>=3){
+      c[i]-=3; melds.push({type:'triplet', tile:i}); rec(i,melds,pair); melds.pop(); c[i]+=3;
+      if(result) return;
+    }
+    if(i<27 && i%9<=6 && c[i+1]>0 && c[i+2]>0){
+      c[i]--;c[i+1]--;c[i+2]--; melds.push({type:'run', tile:i}); rec(i,melds,pair); melds.pop(); c[i]++;c[i+1]++;c[i+2]++;
+      if(result) return;
+    }
+    if(!pair && c[i]>=2){
+      c[i]-=2; rec(i,melds,{tile:i}); c[i]+=2;
+      if(result) return;
+    }
+  }
+  rec(0,[],null);
+  return result;
+}
+function isChiitoi(counts){
+  let pairTypes=0, kinds=0;
+  for(let i=0;i<34;i++){ if(counts[i]>0) kinds++; if(counts[i]===2) pairTypes++; if(counts[i]!==0 && counts[i]!==2) return false; }
+  return pairTypes===7 && kinds===7;
+}
+function isKokushi(counts){
+  let kinds=0, pairSeen=false, total=0;
+  for(let i=0;i<34;i++){
+    if(counts[i]===0) continue;
+    if(TERMINALS_HONORS.indexOf(i)===-1) return false;
+    total+=counts[i];
+    kinds++;
+    if(counts[i]>=2) pairSeen=true;
+  }
+  return kinds===13 && pairSeen && total===14;
+}
+
+function computeYaku(hand, ctx){
+  const counts = countsFromHand(hand);
+  const list = [];
+  let yakumanHan = 0;
+
+  if(isKokushi(counts)){
+    list.push({name:'국사무쌍', han:13, yakuman:true});
+    return { list, han:13, yakuman:true, decomposition:null, chiitoi:false };
+  }
+
+  const chiitoi = isChiitoi(counts);
+  const decomposition = chiitoi ? null : findDecomposition(counts);
+  if(!chiitoi && !decomposition){
+    return { list: [], han:0, yakuman:false, decomposition:null, chiitoi:false, invalid:true };
+  }
+
+  const suitsUsed = new Set();
+  let honorTileCount = 0;
+  for(let i=0;i<27;i++){ if(counts[i]>0) suitsUsed.add(Math.floor(i/9)); }
+  for(let i=27;i<34;i++){ if(counts[i]>0) honorTileCount += counts[i]; }
+  const chinitsu = suitsUsed.size===1 && honorTileCount===0;
+  const honitsu = suitsUsed.size===1 && honorTileCount>0;
+  const allSimple = TERMINALS_HONORS.every(i=>counts[i]===0);
+
+  // 역만 (요만) 체크 - 통일 그룹 기준
+  if(!chiitoi){
+    const allHonor = counts.slice(0,27).every(v=>v===0);
+    const allTerminal = counts.slice(27).every(v=>v===0) && TERMINALS_HONORS.filter(i=>i<27).every(i=>true) &&
+      decomposition.melds.every(m=>{
+        if(m.type==='triplet') return isTerminal(m.tile);
+        return false;
+      }) && isTerminal(decomposition.pair.tile);
+    const dragonTriplets = decomposition.melds.filter(m=>m.type==='triplet' && m.tile>=31).length;
+    const windTriplets = decomposition.melds.filter(m=>m.type==='triplet' && m.tile>=27 && m.tile<31).length;
+    const allTriplets = decomposition.melds.every(m=>m.type==='triplet');
+    const greenSet = new Set([18+1,18+2,18+3,18+5,18+7,32]); // s2,s3,s4,s6,s8,hatsu(z6=idx32)
+    const allGreen = hand.every(code=>greenSet.has(tileIndex(code)));
+
+    if(allHonor){ list.push({name:'자일색', han:13, yakuman:true}); }
+    if(allTerminal){ list.push({name:'청노두', han:13, yakuman:true}); }
+    if(dragonTriplets===3){ list.push({name:'대삼원', han:13, yakuman:true}); }
+    if(windTriplets===4){ list.push({name:'대사희', han:26, yakuman:true}); }
+    else if(windTriplets===3 && decomposition.pair.tile>=27 && decomposition.pair.tile<31){ list.push({name:'소사희', han:13, yakuman:true}); }
+    if(allTriplets && ctx.closed){ list.push({name:'사암각', han:13, yakuman:true}); }
+    if(allGreen){ list.push({name:'녹일색', han:13, yakuman:true}); }
+  }
+  if(list.some(y=>y.yakuman)){
+    const han = list.reduce((a,y)=>a+y.han,0);
+    return { list, han, yakuman:true, decomposition, chiitoi:false };
+  }
+
+  // 일반 역
+  if(ctx.riichi) list.push({name:'리치', han:1});
+  if(ctx.tsumo && ctx.closed) list.push({name:'멘젠쯔모', han:1});
+  if(allSimple) list.push({name:'탄야오', han:1});
+
+  if(chiitoi){
+    list.push({name:'치토이츠', han:2});
+  } else {
+    const melds = decomposition.melds, pair = decomposition.pair;
+    const allRuns = melds.every(m=>m.type==='run');
+    const allTriplets = melds.every(m=>m.type==='triplet');
+
+    // 야쿠하이 (삼원패만 자동 판정, 바람패는 정보로만 안내)
+    melds.filter(m=>m.type==='triplet' && m.tile>=31).forEach(m=>{
+      list.push({name:`역패 (${HONOR_NAMES[m.tile-27]})`, han:1});
+    });
+
+    // 핀후
+    if(ctx.closed && allRuns && !(pair.tile>=31)){
+      let ryanmen = true;
+      if(ctx.winTileIdx!=null){
+        const m = melds.find(mm=>{
+          const local = ctx.winTileIdx - mm.tile;
+          return local>=0 && local<=2;
+        });
+        if(m){
+          const local = ctx.winTileIdx - m.tile;
+          if(local===1) ryanmen=false;
+          if(local===0 && m.tile%9===6) ryanmen=false;
+          if(local===2 && m.tile%9===0) ryanmen=false;
+        } else if(ctx.winTileIdx===pair.tile){
+          ryanmen=false;
+        }
+      }
+      if(ryanmen) list.push({name:'핀후', han:1});
+    }
+
+    // 이페코
+    const runKeys = melds.filter(m=>m.type==='run').map(m=>m.tile);
+    const seen = {};
+    let iipeiko=false;
+    runKeys.forEach(t=>{ seen[t]=(seen[t]||0)+1; if(seen[t]===2) iipeiko=true; });
+    if(iipeiko && ctx.closed) list.push({name:'이페이코', han:1});
+
+    // 산쇼쿠 도준
+    for(let n=0;n<7;n++){
+      const hasM = melds.some(m=>m.type==='run' && m.tile===n);
+      const hasP = melds.some(m=>m.type==='run' && m.tile===9+n);
+      const hasS = melds.some(m=>m.type==='run' && m.tile===18+n);
+      if(hasM&&hasP&&hasS){ list.push({name:'삼색동순', han: ctx.closed?2:1}); break; }
+    }
+    // 일기통관
+    ['m','p','s'].forEach((s,si)=>{
+      const base = si*9;
+      const has123 = melds.some(m=>m.type==='run'&&m.tile===base);
+      const has456 = melds.some(m=>m.type==='run'&&m.tile===base+3);
+      const has789 = melds.some(m=>m.type==='run'&&m.tile===base+6);
+      if(has123&&has456&&has789) list.push({name:'일기통관', han: ctx.closed?2:1});
+    });
+    // 찬타 / 준찬
+    const groupHasTerminalOrHonor = (m)=>{
+      if(m.type==='triplet') return isTerminalOrHonor(m.tile);
+      return m.tile%9===0 || m.tile%9===6; // run contains 1 or 9
+    };
+    const allGroupsChanta = melds.every(groupHasTerminalOrHonor) && isTerminalOrHonor(pair.tile);
+    if(allGroupsChanta){
+      const noHonors = melds.every(m=> m.type==='run' ? true : !isHonor(m.tile)) && !isHonor(pair.tile);
+      if(noHonors) list.push({name:'준찬타', han: ctx.closed?3:2});
+      else list.push({name:'찬타', han: ctx.closed?2:1});
+    }
+    // 토이토이
+    if(allTriplets) list.push({name:'토이토이', han:2});
+
+    if(chinitsu) list.push({name:'청일색', han: ctx.closed?6:5});
+    else if(honitsu) list.push({name:'혼일색', han: ctx.closed?3:2});
+  }
+
+  if(ctx.dora>0) list.push({name:`도라`, han: ctx.dora});
+
+  const han = list.reduce((a,y)=>a+y.han,0);
+  return { list, han, yakuman:false, decomposition, chiitoi };
+}
+
+function tripletFuValue(tileIdx, concealed){
+  const base = isTerminalOrHonor(tileIdx) ? 8 : 4;
+  const val = concealed ? base : base/2;
+  return val;
+}
+
+function computeFu(hand, res, ctx){
+  if(res.chiitoi) return 25;
+  if(!res.decomposition) return 20;
+  const { melds, pair } = res.decomposition;
+  let fu = 20;
+  if(ctx.closed && ctx.method==='ron') fu += 10;
+  const isPinfu = res.list.some(y=>y.name==='핀후');
+  if(ctx.method==='tsumo' && !isPinfu) fu += 2;
+
+  melds.forEach(m=>{
+    if(m.type==='triplet'){
+      let concealed = true;
+      if(ctx.winTileIdx===m.tile && ctx.method==='ron') concealed = false; // 샹퐁 론
+      fu += tripletFuValue(m.tile, concealed);
+    }
+  });
+  if(pair.tile>=31) fu += 2; // 삼원패 페어
+
+  if(ctx.winTileIdx!=null){
+    if(ctx.winTileIdx===pair.tile){
+      fu += 2; // 탄키
+    } else {
+      const m = melds.find(mm=> mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
+      if(m){
+        const local = ctx.winTileIdx-m.tile;
+        if(local===1) fu+=2; // 칸찬
+        else if(local===0 && m.tile%9===6) fu+=2; // 펜찬 (789 대기 7)
+        else if(local===2 && m.tile%9===0) fu+=2; // 펜찬 (123 대기 3)
+      }
+    }
+  }
+  return Math.ceil(fu/10)*10;
+}
+
+function scoreFromHanFu(han, fu, isDealer, tsumo){
+  let name=null, base;
+  if(han>=13){ name='역만'; base = isDealer?48000:32000; }
+  else if(han>=11){ name='삼배만'; base = isDealer?36000:24000; }
+  else if(han>=8){ name='배만'; base = isDealer?24000:16000; }
+  else if(han>=6){ name='하네만'; base = isDealer?18000:12000; }
+  else {
+    let basic = fu*Math.pow(2,2+han);
+    if(han>=5 || basic>2000){ name='만관'; base = isDealer?12000:8000; }
+    else{
+      basic = Math.min(basic,2000);
+      if(tsumo){
+        if(isDealer){
+          const each = Math.ceil(basic*2/100)*100;
+          return { name:null, total: each*3, detail:`전원 ${each.toLocaleString()}점씩 지불` };
+        } else {
+          const dealerPay = Math.ceil(basic*2/100)*100;
+          const otherPay = Math.ceil(basic/100)*100;
+          return { name:null, total: dealerPay+otherPay*2, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩` };
+        }
+      } else {
+        const mult = isDealer?6:4;
+        const pts = Math.ceil(basic*mult/100)*100;
+        return { name:null, total: pts, detail: isDealer? '상대에게 론' : '방총자에게 론' };
+      }
+    }
+  }
+  if(tsumo){
+    if(isDealer){ const each=Math.round(base/3/100)*100; return { name, total: base, detail:`전원 ${each.toLocaleString()}점씩 지불` }; }
+    const dealerPay = Math.round(base/2/100)*100;
+    const otherPay = Math.round(base/4/100)*100;
+    return { name, total: base, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩` };
+  }
+  return { name, total: base, detail: '론으로 획득' };
+}
+
+/* ===================== 후보 역 휴리스틱 ===================== */
+function candidateYaku(counts, handLen){
+  if(handLen===0) return [];
+  const list=[];
+  const hasTerminalHonor = TERMINALS_HONORS.some(i=>counts[i]>0);
+  if(!hasTerminalHonor) list.push({name:'탄야오', desc:'1·9·자패가 하나도 없어요'});
+
+  for(let i=27;i<34;i++){
+    if(counts[i]>=2){
+      const label = i>=31 ? `역패(${HONOR_NAMES[i-27]})` : `바람패(${HONOR_NAMES[i-27]})`;
+      list.push({name:label+' 후보', desc:`${counts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
+    }
+  }
+  const suitsUsed = new Set(); let honorCount=0;
+  for(let i=0;i<27;i++){ if(counts[i]>0) suitsUsed.add(Math.floor(i/9)); }
+  for(let i=27;i<34;i++){ if(counts[i]>0) honorCount+=counts[i]; }
+  if(suitsUsed.size===1){
+    list.push({name: honorCount>0?'혼일색 후보':'청일색 후보', desc:'한 가지 무늬 위주로 모이고 있어요'});
+  } else if(suitsUsed.size===2 && honorCount>0){
+    list.push({name:'혼일색 후보', desc:'무늬를 한 가지로 좁히면 노려볼 수 있어요'});
+  }
+  let pairTypes=0, tripletTypes=0;
+  for(let i=0;i<34;i++){ if(counts[i]===2) pairTypes++; if(counts[i]>=3) tripletTypes++; }
+  if(pairTypes+tripletTypes>=3) list.push({name:'토이토이 / 치토이츠 후보', desc:'짝을 맞춘 패가 많이 보여요'});
+
+  list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
+  return list;
+}
+
+/* ===================== 렌더링 ===================== */
+function sortHand(){ state.hand.sort((a,b)=>tileIndex(a)-tileIndex(b)); }
+
+function tileEl(code, opts){
+  opts = opts||{};
+  const idx = tileIndex(code);
+  const div = document.createElement('div');
+  div.className = 'tile' + (opts.small?' small':'') + (suitOf(idx)==='p'?' suit-p':'') + (suitOf(idx)==='s'?' suit-s':'') + (isHonor(idx)&&idx>=31?' suit-z-dragon':'');
+  div.textContent = glyphOf(idx);
+  div.title = tileKor(idx);
+  if(opts.onClick) div.addEventListener('click', opts.onClick);
+  if(opts.selected) div.classList.add('selected');
+  if(opts.winMarker) div.classList.add('win-marker');
+  return div;
+}
+
+function renderHand(){
+  const row = document.getElementById('handRow');
+  row.innerHTML='';
+  state.hand.forEach((code, idx)=>{
+    row.appendChild(tileEl(code, { onClick: ()=>openPicker('edit', idx) }));
+  });
+  if(state.hand.length<14){
+    const add = document.createElement('div');
+    add.className='tile-add';
+    add.textContent='+';
+    add.addEventListener('click', ()=>openPicker('add', null));
+    row.appendChild(add);
+  }
+  document.getElementById('handCountLabel').textContent = `(${state.hand.length}/14)`;
+}
+
+function render(){
+  renderHand();
+  const counts = countsFromHand(state.hand);
+  const len = state.hand.length;
+
+  const candCard = document.getElementById('candidateCard');
+  const discardCard = document.getElementById('discardCard');
+  const waitCard = document.getElementById('waitCard');
+  const completeCard = document.getElementById('completeCard');
+  const scoreCard = document.getElementById('scoreCard');
+  [discardCard, waitCard, completeCard, scoreCard].forEach(c=>c.style.display='none');
+  candCard.style.display='none';
+
+  const statusNum = document.getElementById('statusNum');
+  const statusLabel = document.getElementById('statusLabel');
+
+  if(len===0){
+    statusNum.textContent='-';
+    statusLabel.textContent='패를 먼저 등록해주세요';
+    return;
+  }
+
+  const sh = overallShanten(counts);
+
+  if(len===14 && sh===-1){
+    // 완성
+    statusNum.textContent='화료';
+    statusLabel.textContent='역이 완성됐어요! 아래에서 화료 조건을 설정해보세요';
+    completeCard.style.display='block';
+    scoreCard.style.display='block';
+    renderWinTilePicker();
+    renderScore();
+  } else if(len===13 && sh===0){
+    statusNum.textContent='텐파이';
+    statusLabel.textContent = state.riichi ? '리치 중이에요. 대기 패가 나오면 화료할 수 있어요' : '한 장만 더 있으면 완성이에요';
+    waitCard.style.display='block';
+    renderWaits(counts);
+    candCard.style.display='block';
+    renderCandidates(counts, len);
+  } else {
+    statusNum.textContent = sh<0 ? '-' : (sh+'샹텐');
+    statusLabel.textContent = len<13 ? `아직 ${13-len}장 더 필요해요` : (len===14 ? '완성까지 좀 더 다듬어야 해요' : '완성까지 남은 교환 횟수예요');
+    candCard.style.display='block';
+    renderCandidates(counts, len);
+    if(len===14){
+      discardCard.style.display='block';
+      renderDiscards(counts);
+    }
+  }
+}
+
+function renderCandidates(counts, len){
+  const list = candidateYaku(counts, len);
+  const el = document.getElementById('candidateList');
+  el.innerHTML='';
+  list.forEach(y=>{
+    const row = document.createElement('div');
+    row.className='yaku-item';
+    row.innerHTML = `<div><div class="yaku-name">${y.name}</div><div class="yaku-desc">${y.desc}</div></div>`;
+    el.appendChild(row);
+  });
+  if(state.riichi){
+    const note = document.createElement('div');
+    note.className='warn-box';
+    note.textContent='리치 선언 중에는 손패를 바꿀 수 없어요. 뽑은 패를 그대로 버려야 해요.';
+    el.appendChild(note);
+  }
+}
+
+function renderDiscards(counts){
+  const candidates = [];
+  for(let t=0;t<34;t++){
+    if(counts[t]===0) continue;
+    counts[t]--;
+    const sh13 = overallShanten(counts);
+    let ukeireTypes=0, ukeireTiles=0;
+    if(sh13===0){
+      const waits = waitingTiles(counts);
+      ukeireTypes = waits.length;
+      ukeireTiles = waits.reduce((a,w)=>a+(4-counts[w]),0);
+    }
+    counts[t]++;
+    candidates.push({ tile:t, sh13, ukeireTypes, ukeireTiles });
+  }
+  candidates.sort((a,b)=> a.sh13-b.sh13 || b.ukeireTiles-a.ukeireTiles );
+  const top = candidates.slice(0,5);
+  const el = document.getElementById('discardList');
+  el.innerHTML='';
+  top.forEach((c,i)=>{
+    const row = document.createElement('div');
+    row.className='discard-pick';
+    const rank = document.createElement('div'); rank.className='rank'; rank.textContent=(i+1);
+    const tileWrap = tileEl(indexToCode(c.tile), { small:true });
+    const info = document.createElement('div'); info.className='info';
+    const shTxt = c.sh13===-1?'화료':(c.sh13===0?'텐파이':c.sh13+'샹텐');
+    info.innerHTML = `<b>${tileKor(c.tile)}</b> 버리기 → <b>${shTxt}</b>` + (c.sh13===0?`<br>대기 ${c.ukeireTypes}종 · 남은 ${c.ukeireTiles}장`:'');
+    row.appendChild(rank); row.appendChild(tileWrap); row.appendChild(info);
+    el.appendChild(row);
+  });
+}
+
+function renderWaits(counts13){
+  const waits = waitingTiles(counts13);
+  const grid = document.getElementById('waitGrid');
+  grid.innerHTML='';
+  waits.sort((a,b)=>a-b).forEach(t=>{
+    const remain = 4-counts13[t];
+    const wrap = document.createElement('div');
+    wrap.className='wait-item';
+    wrap.appendChild(tileEl(indexToCode(t)));
+    const cnt = document.createElement('div');
+    cnt.className='cnt';
+    cnt.textContent = `${tileKor(t)} · ${remain}장 남음`;
+    wrap.appendChild(cnt);
+    grid.appendChild(wrap);
+  });
+  if(waits.length===0){
+    grid.innerHTML = '<div class="empty-note">대기 패를 찾지 못했어요. 손패를 다시 확인해주세요.</div>';
+  }
+}
+
+function renderWinTilePicker(){
+  const wrap = document.getElementById('winTilePicker');
+  wrap.innerHTML='';
+  const uniq = [...new Set(state.hand.map(tileIndex))].sort((a,b)=>a-b);
+  uniq.forEach(idx=>{
+    const code = indexToCode(idx);
+    const el = tileEl(code, {
+      onClick: ()=>{ state.winTile = (state.winTile===code)? null : code; render(); },
+      selected: state.winTile===code
+    });
+    wrap.appendChild(el);
+  });
+}
+
+function renderScore(){
+  const ctx = {
+    riichi: state.riichi,
+    tsumo: state.method==='tsumo',
+    method: state.method,
+    closed: true,
+    dora: Number(state.dora)||0,
+    winTileIdx: state.winTile ? tileIndex(state.winTile) : null
+  };
+  const res = computeYaku(state.hand, ctx);
+  const yakuEl = document.getElementById('yakuFinalList');
+  const scoreEl = document.getElementById('scoreResult');
+  yakuEl.innerHTML=''; scoreEl.innerHTML='';
+
+  if(res.invalid){
+    yakuEl.innerHTML = '<div class="empty-note">14장이 완성된 형태(4묶음+1쌍 또는 치토이츠)가 아니에요. 패 구성을 확인해주세요.</div>';
+    return;
+  }
+  if(res.list.length===0){
+    yakuEl.innerHTML = '<div class="warn-box">역이 없어서 이 상태로는 화료할 수 없어요. 리치를 하거나 다른 역을 노려보세요.</div>';
+    return;
+  }
+  res.list.forEach(y=>{
+    const row = document.createElement('div');
+    row.className='yaku-item';
+    row.innerHTML = `<div class="yaku-name">${y.name}</div><div class="yaku-han">${y.han}판</div>`;
+    yakuEl.appendChild(row);
+  });
+
+  if(res.yakuman){
+    const box = document.createElement('div');
+    box.className='score-total';
+    const isDealer = state.isDealer;
+    const pts = isDealer ? res.han/13*48000 : res.han/13*32000;
+    box.innerHTML = `<div class="pts">${Math.round(pts).toLocaleString()}점</div><div class="tier">역만</div>`;
+    scoreEl.appendChild(box);
+    return;
+  }
+
+  const fu = computeFu(state.hand, res, ctx);
+  const scoreInfo = scoreFromHanFu(res.han, fu, state.isDealer, ctx.tsumo);
+  const hanfu = document.createElement('div');
+  hanfu.className='hanfu-line';
+  hanfu.textContent = `${res.han}판 ${fu}부`;
+  scoreEl.appendChild(hanfu);
+
+  const box = document.createElement('div');
+  box.className='score-total';
+  box.innerHTML = `<div class="pts">${scoreInfo.total.toLocaleString()}점</div>` + (scoreInfo.name?`<div class="tier">${scoreInfo.name}</div>`:'');
+  scoreEl.appendChild(box);
+
+  const detail = document.createElement('div');
+  detail.className='score-detail';
+  detail.textContent = scoreInfo.detail;
+  scoreEl.appendChild(detail);
+
+  if(ctx.winTileIdx==null){
+    const note = document.createElement('div');
+    note.className='warn-box';
+    note.textContent = '화료 패를 선택하면 대기 모양(칸찬/펜찬/탄키 등)까지 반영해 더 정확하게 계산해요.';
+    scoreEl.appendChild(note);
+  }
+}
+
+/* ===================== 패 선택 모달 ===================== */
+let pickerMode = null; // 'edit' | 'add'
+let pickerEditIdx = null;
+
+function openPicker(mode, idx){
+  pickerMode = mode; pickerEditIdx = idx;
+  document.getElementById('pickerTitle').textContent = mode==='add' ? '패 추가' : '패 수정';
+  document.getElementById('pickerRemove').style.display = mode==='edit' ? 'inline-flex' : 'none';
+  renderPickerGrid();
+  document.getElementById('pickerOverlay').classList.add('show');
+}
+function closePicker(){ document.getElementById('pickerOverlay').classList.remove('show'); }
+
+function renderPickerGrid(){
+  const body = document.getElementById('pickerBody');
+  body.innerHTML='';
+  const counts = countsFromHand(state.hand);
+  const groups = [ ['만수','m',9], ['통수','p',9], ['삭수','s',9], ['자패','z',7] ];
+  groups.forEach(([label,suit,n])=>{
+    const lab = document.createElement('div'); lab.className='picker-suit-label'; lab.textContent=label;
+    body.appendChild(lab);
+    const grid = document.createElement('div'); grid.className='picker-grid';
+    for(let num=1;num<=9;num++){
+      if(num>n){
+        const spacer=document.createElement('div');
+        grid.appendChild(spacer);
+        continue;
+      }
+      const code = suit+num;
+      const idx = tileIndex(code);
+      const cnt = counts[idx];
+      const cell = document.createElement('div');
+      cell.className='picker-cell'+(cnt>=4?' disabled':'');
+      const t = tileEl(code, { onClick: ()=>{ if(cnt>=4) return; chooseTile(code); } });
+      cell.appendChild(t);
+      const ctEl = document.createElement('div'); ctEl.className='ct'; ctEl.textContent=`${cnt}/4`;
+      cell.appendChild(ctEl);
+      grid.appendChild(cell);
+    }
+    body.appendChild(grid);
+  });
+}
+
+function chooseTile(code){
+  if(pickerMode==='add'){
+    if(state.hand.length>=14) return;
+    state.hand.push(code);
+  } else if(pickerMode==='edit'){
+    state.hand[pickerEditIdx] = code;
+  }
+  sortHand();
+  closePicker();
+  state.winTile = null;
+  render();
+}
+
+document.getElementById('pickerClose').addEventListener('click', closePicker);
+document.getElementById('pickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='pickerOverlay') closePicker(); });
+document.getElementById('pickerRemove').addEventListener('click', ()=>{
+  if(pickerEditIdx!=null){ state.hand.splice(pickerEditIdx,1); }
+  closePicker();
+  state.winTile = null;
+  render();
+});
+
+/* ===================== 토글 / 옵션 ===================== */
+document.getElementById('riichiSwitch').addEventListener('click', function(){
+  state.riichi = !state.riichi;
+  this.classList.toggle('on', state.riichi);
+  render();
+});
+document.getElementById('dealerSwitch').addEventListener('click', function(){
+  state.isDealer = !state.isDealer;
+  this.classList.toggle('on', state.isDealer);
+  render();
+});
+document.getElementById('tsumoRonSeg').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  state.method = btn.dataset.v;
+  [...document.getElementById('tsumoRonSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
+  render();
+});
+document.getElementById('doraInput').addEventListener('input', (e)=>{
+  state.dora = Number(e.target.value)||0;
+  render();
+});
+
+/* ===================== 로컬 인식 모델 (ONNX, 완전 오프라인) ===================== */
+// 모델 학습 시 사용한 클래스 순서 (classes.txt 그대로) - 0b:뒷면, 0m/0p/0s:빨간5(아카도라)
+const MODEL_CLASSES = ['0b','0m','0p','0s','1m','1p','1s','1z','2m','2p','2s','2z','3m','3p','3s','3z',
+  '4m','4p','4s','4z','5m','5p','5s','5z','6m','6p','6s','6z','7m','7p','7s','7z','8m','8p','8s','9m','9p','9s'];
+const MODEL_INPUT_SIZE = 416;
+const MODEL_CONF_THRESHOLD = 0.4;
+const MODEL_IOU_THRESHOLD = 0.45;
+const MODEL_URL = './mahjong-tile-model.onnx';
+
+let ortSession = null;
+const modelStatusEl = document.getElementById('modelStatus');
+
+function classLabelToCode(label){
+  // 라벨 예: "7z" -> suit는 마지막 글자, 숫자는 앞부분
+  const suit = label.slice(-1);
+  const rank = label.slice(0, -1);
+  return suit + rank; // "7z" -> "z7"
+}
+
+async function loadModel(){
+  try{
+    if(typeof ort === 'undefined'){
+      throw new Error('onnxruntime-web 라이브러리를 불러오지 못했어요 (인터넷 연결이 필요한 최초 1회 로딩)');
+    }
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/';
+    modelStatusEl.textContent = '모델을 불러오는 중... (처음 한 번만 시간이 걸려요)';
+    ortSession = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ['wasm'] });
+    modelStatusEl.textContent = '모델 준비 완료 — 이제부터는 인터넷 없이도 인식할 수 있어요.';
+  } catch(err){
+    console.error(err);
+    modelStatusEl.innerHTML = `<span style="color:var(--red-bright);">모델을 불러오지 못했어요 (${err.message}). mahjong-tile-model.onnx 파일이 이 HTML과 같은 폴더에 있는지 확인해주세요. 그 전까지는 아래 + 버튼으로 직접 패를 입력할 수 있어요.</span>`;
+  }
+}
+
+function sigmoid(x){ return 1/(1+Math.exp(-x)); }
+
+function iou(a, b){
+  const x1 = Math.max(a.x1,b.x1), y1 = Math.max(a.y1,b.y1);
+  const x2 = Math.min(a.x2,b.x2), y2 = Math.min(a.y2,b.y2);
+  const inter = Math.max(0,x2-x1) * Math.max(0,y2-y1);
+  const areaA = (a.x2-a.x1)*(a.y2-a.y1);
+  const areaB = (b.x2-b.x1)*(b.y2-b.y1);
+  return inter / (areaA+areaB-inter+1e-6);
+}
+
+function nms(boxes){
+  boxes.sort((a,b)=>b.score-a.score);
+  const kept = [];
+  for(const box of boxes){
+    let overlap = false;
+    for(const k of kept){
+      if(k.cls===box.cls && iou(k,box) > MODEL_IOU_THRESHOLD){ overlap=true; break; }
+    }
+    if(!overlap) kept.push(box);
+  }
+  return kept;
+}
+
+// 이미지를 모델 입력 크기로 레터박스 리사이즈 (비율 유지, 남는 부분은 회색 패딩)
+function preprocessImage(img){
+  const canvas = document.createElement('canvas');
+  canvas.width = MODEL_INPUT_SIZE; canvas.height = MODEL_INPUT_SIZE;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgb(114,114,114)';
+  ctx.fillRect(0,0,MODEL_INPUT_SIZE,MODEL_INPUT_SIZE);
+  const scale = Math.min(MODEL_INPUT_SIZE/img.width, MODEL_INPUT_SIZE/img.height);
+  const nw = img.width*scale, nh = img.height*scale;
+  const dx = (MODEL_INPUT_SIZE-nw)/2, dy = (MODEL_INPUT_SIZE-nh)/2;
+  ctx.drawImage(img, dx, dy, nw, nh);
+  const imgData = ctx.getImageData(0,0,MODEL_INPUT_SIZE,MODEL_INPUT_SIZE).data;
+  const chw = new Float32Array(3*MODEL_INPUT_SIZE*MODEL_INPUT_SIZE);
+  const plane = MODEL_INPUT_SIZE*MODEL_INPUT_SIZE;
+  for(let i=0;i<plane;i++){
+    chw[i] = imgData[i*4]/255;
+    chw[plane+i] = imgData[i*4+1]/255;
+    chw[plane*2+i] = imgData[i*4+2]/255;
+  }
+  return chw;
+}
+
+function loadImageFile(file){
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    img.onload = ()=>resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function runDetection(file){
+  const img = await loadImageFile(file);
+  const inputData = preprocessImage(img);
+  const tensor = new ort.Tensor('float32', inputData, [1,3,MODEL_INPUT_SIZE,MODEL_INPUT_SIZE]);
+  const inputName = ortSession.inputNames[0];
+  const outputName = ortSession.outputNames[0];
+  const results = await ortSession.run({ [inputName]: tensor });
+  const output = results[outputName];
+  const data = output.data;
+  const dims = output.dims; // [1, 4+nc, numAnchors]
+  const numAttrs = dims[1];
+  const numAnchors = dims[2];
+  const nc = numAttrs - 4;
+
+  const boxes = [];
+  for(let a=0; a<numAnchors; a++){
+    let bestCls = -1, bestScore = -Infinity;
+    for(let c=0; c<nc; c++){
+      const raw = data[(4+c)*numAnchors + a];
+      if(raw > bestScore){ bestScore = raw; bestCls = c; }
+    }
+    const score = sigmoid(bestScore);
+    if(score < MODEL_CONF_THRESHOLD) continue;
+    const cx = data[0*numAnchors+a], cy = data[1*numAnchors+a];
+    const w = data[2*numAnchors+a], h = data[3*numAnchors+a];
+    boxes.push({ x1: cx-w/2, y1: cy-h/2, x2: cx+w/2, y2: cy+h/2, cls: bestCls, score, cy });
+  }
+  const kept = nms(boxes);
+  // 왼쪽 -> 오른쪽 순서로 정렬 (사람이 손패를 보통 왼쪽부터 나열하므로)
+  kept.sort((a,b)=>a.x1-b.x1);
+  return kept.map(b=>({ label: MODEL_CLASSES[b.cls], score: b.score }));
+}
+
+/* ===================== 카메라 인식 ===================== */
+const cameraInput = document.getElementById('cameraInput');
+const uploadInput = document.getElementById('uploadInput');
+document.getElementById('btnCamera').addEventListener('click', ()=>cameraInput.click());
+document.getElementById('btnUpload').addEventListener('click', ()=>uploadInput.click());
+cameraInput.addEventListener('change', (e)=>handleImage(e.target.files[0]));
+uploadInput.addEventListener('change', (e)=>handleImage(e.target.files[0]));
+
+async function handleImage(file){
+  if(!file) return;
+  const errBox = document.getElementById('apiError');
+  errBox.innerHTML='';
+  if(!ortSession){
+    errBox.innerHTML = `<div class="warn-box">인식 모델이 아직 준비되지 않았어요. 위쪽 "인식 모델 상태"를 확인해주세요.</div>`;
+    cameraInput.value=''; uploadInput.value='';
+    return;
+  }
+  document.getElementById('loadingOverlay').classList.add('show');
+  document.getElementById('loadingText').textContent = '사진에서 패를 인식하는 중... (기기 내부에서 처리돼요)';
+  try{
+    const detections = await runDetection(file);
+    if(detections.length===0) throw new Error('패를 찾지 못했어요');
+
+    let redFives = 0;
+    const codes = [];
+    detections.slice(0,14).forEach(d=>{
+      if(d.label==='0b') return; // 뒷면(식별 불가)은 건너뜀
+      if(d.label==='0m'){ codes.push('m5'); redFives++; return; }
+      if(d.label==='0p'){ codes.push('p5'); redFives++; return; }
+      if(d.label==='0s'){ codes.push('s5'); redFives++; return; }
+      codes.push(classLabelToCode(d.label));
+    });
+    if(codes.length===0) throw new Error('식별 가능한 패를 찾지 못했어요');
+
+    state.hand = codes;
+    sortHand();
+    state.winTile = null;
+    if(redFives>0){
+      state.dora = redFives;
+      errBox.innerHTML = `<div class="count-note">빨간 5(아카도라) ${redFives}장을 인식해서 도라 개수에 자동 반영했어요. 다른 도라가 더 있으면 화료 옵션에서 수정해주세요.</div>`;
+    }
+    render();
+  } catch(err){
+    console.error(err);
+    errBox.innerHTML = `<div class="warn-box">인식에 실패했어요 (${err.message || '알 수 없는 오류'}). 사진을 더 밝고 정면에 가깝게 찍어보시거나, 아래 손패에서 + 버튼으로 직접 패를 추가해주세요.</div>`;
+  } finally {
+    document.getElementById('loadingOverlay').classList.remove('show');
+    cameraInput.value=''; uploadInput.value='';
+  }
+}
+
+/* ===================== 초기화 ===================== */
+loadModel();
+render();
+</script>
+</body>
+</html>
