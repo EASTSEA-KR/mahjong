@@ -360,8 +360,7 @@ const state = {
   isDealer: false,
   method: 'ron',      // 'ron' | 'tsumo'
   dora: 0,
-  winTile: null,      // tile code or null
-  redFivesDetected: 0
+  winTile: null       // tile code or null
 };
 
 /* ===================== 샹텐 계산 엔진 ===================== */
@@ -1027,16 +1026,15 @@ document.getElementById('doraInput').addEventListener('input', (e)=>{
 // 모델 학습 시 사용한 클래스 순서 (classes.txt 그대로) - 0b:뒷면, 0m/0p/0s:빨간5(아카도라)
 const MODEL_CLASSES = ['0b','0m','0p','0s','1m','1p','1s','1z','2m','2p','2s','2z','3m','3p','3s','3z',
   '4m','4p','4s','4z','5m','5p','5s','5z','6m','6p','6s','6z','7m','7p','7s','7z','8m','8p','8s','9m','9p','9s'];
-const MODEL_INPUT_SIZE = 416;
+const MODEL_INPUT_SIZE = 640; // 새 학습 노트북 기준 (yolov8s, 640px)로 다시 학습한 모델을 넣어주세요
 const MODEL_CONF_THRESHOLD = 0.4;
-const MODEL_IOU_THRESHOLD = 0.45;
+const MODEL_IOU_THRESHOLD = 0.5;
 const MODEL_URL = './mahjong-tile-model.onnx';
 
 let ortSession = null;
 const modelStatusEl = document.getElementById('modelStatus');
 
 function classLabelToCode(label){
-  // 라벨 예: "7z" -> suit는 마지막 글자, 숫자는 앞부분
   const suit = label.slice(-1);
   const rank = label.slice(0, -1);
   return suit + rank; // "7z" -> "z7"
@@ -1050,6 +1048,7 @@ async function loadModel(){
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/';
     modelStatusEl.textContent = '모델을 불러오는 중... (처음 한 번만 시간이 걸려요)';
     ortSession = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ['wasm'] });
+    console.log('모델 입력:', ortSession.inputNames, '출력:', ortSession.outputNames);
     modelStatusEl.textContent = '모델 준비 완료 — 이제부터는 인터넷 없이도 인식할 수 있어요.';
   } catch(err){
     console.error(err);
@@ -1074,7 +1073,8 @@ function nms(boxes){
   for(const box of boxes){
     let overlap = false;
     for(const k of kept){
-      if(k.cls===box.cls && iou(k,box) > MODEL_IOU_THRESHOLD){ overlap=true; break; }
+      // 패는 서로 거의 겹치지 않으므로, 같은 자리에 다른 클래스로 중복 검출된 것도 하나로 합쳐요
+      if(iou(k,box) > MODEL_IOU_THRESHOLD){ overlap=true; break; }
     }
     if(!overlap) kept.push(box);
   }
@@ -1112,6 +1112,54 @@ function loadImageFile(file){
   });
 }
 
+// output0 텐서가 [1, 4+nc, anchors] 인지 [1, anchors, 4+nc] 인지 모델마다 다를 수 있어서 자동 감지
+function decodeOutput(output){
+  const data = output.data;
+  const dims = output.dims; // 길이 3, 배치=1 포함
+  const expectedAttrs = 4 + MODEL_CLASSES.length; // 42
+  let numAttrs, numAnchors, transposed;
+  if(dims[1] === expectedAttrs){
+    numAttrs = dims[1]; numAnchors = dims[2]; transposed = false;   // [1, 42, N]
+  } else if(dims[2] === expectedAttrs){
+    numAttrs = dims[2]; numAnchors = dims[1]; transposed = true;    // [1, N, 42]
+  } else {
+    // 클래스 수가 다르면(재학습 등) 그냥 더 큰 쪽을 anchors로 간주
+    if(dims[1] > dims[2]){ numAnchors = dims[1]; numAttrs = dims[2]; transposed = true; }
+    else{ numAnchors = dims[2]; numAttrs = dims[1]; transposed = false; }
+  }
+  const nc = numAttrs - 4;
+  const get = transposed
+    ? (attr, a) => data[a*numAttrs + attr]
+    : (attr, a) => data[attr*numAnchors + a];
+
+  // Ultralytics ONNX export는 클래스 점수에 이미 sigmoid가 적용된 확률(0~1)을 내보내요.
+  // 그 위에 sigmoid를 또 적용하면 모든 점수가 0.5 이상으로 눌려버려서 결과가 망가져요.
+  // 그래서 값 범위를 보고 로짓인지 확률인지 자동 판별해요.
+  let needSigmoid = false;
+  for(let a=0; a<numAnchors; a+=7){
+    for(let c=0; c<nc; c++){
+      const v = get(4+c, a);
+      if(v < -0.001 || v > 1.001){ needSigmoid = true; break; }
+    }
+    if(needSigmoid) break;
+  }
+  console.log(needSigmoid ? '출력이 로짓 형태 → sigmoid 적용' : '출력이 이미 확률 형태 → sigmoid 생략');
+
+  const boxes = [];
+  for(let a=0; a<numAnchors; a++){
+    let bestCls = -1, bestScore = -Infinity;
+    for(let c=0; c<nc; c++){
+      const raw = get(4+c, a);
+      if(raw > bestScore){ bestScore = raw; bestCls = c; }
+    }
+    const score = needSigmoid ? sigmoid(bestScore) : bestScore;
+    if(score < MODEL_CONF_THRESHOLD) continue;
+    const cx = get(0,a), cy = get(1,a), w = get(2,a), h = get(3,a);
+    boxes.push({ x1: cx-w/2, y1: cy-h/2, x2: cx+w/2, y2: cy+h/2, cls: bestCls, score });
+  }
+  return boxes;
+}
+
 async function runDetection(file){
   const img = await loadImageFile(file);
   const inputData = preprocessImage(img);
@@ -1120,27 +1168,12 @@ async function runDetection(file){
   const outputName = ortSession.outputNames[0];
   const results = await ortSession.run({ [inputName]: tensor });
   const output = results[outputName];
-  const data = output.data;
-  const dims = output.dims; // [1, 4+nc, numAnchors]
-  const numAttrs = dims[1];
-  const numAnchors = dims[2];
-  const nc = numAttrs - 4;
+  console.log('출력 텐서 shape:', output.dims);
 
-  const boxes = [];
-  for(let a=0; a<numAnchors; a++){
-    let bestCls = -1, bestScore = -Infinity;
-    for(let c=0; c<nc; c++){
-      const raw = data[(4+c)*numAnchors + a];
-      if(raw > bestScore){ bestScore = raw; bestCls = c; }
-    }
-    const score = sigmoid(bestScore);
-    if(score < MODEL_CONF_THRESHOLD) continue;
-    const cx = data[0*numAnchors+a], cy = data[1*numAnchors+a];
-    const w = data[2*numAnchors+a], h = data[3*numAnchors+a];
-    boxes.push({ x1: cx-w/2, y1: cy-h/2, x2: cx+w/2, y2: cy+h/2, cls: bestCls, score, cy });
-  }
+  let boxes = decodeOutput(output);
+  console.log(`임계값(${MODEL_CONF_THRESHOLD}) 통과 박스: ${boxes.length}개`);
   const kept = nms(boxes);
-  // 왼쪽 -> 오른쪽 순서로 정렬 (사람이 손패를 보통 왼쪽부터 나열하므로)
+  console.log('NMS 이후:', kept.map(b=>`${MODEL_CLASSES[b.cls]}(${b.score.toFixed(2)})`));
   kept.sort((a,b)=>a.x1-b.x1);
   return kept.map(b=>({ label: MODEL_CLASSES[b.cls], score: b.score }));
 }
@@ -1166,7 +1199,7 @@ async function handleImage(file){
   document.getElementById('loadingText').textContent = '사진에서 패를 인식하는 중... (기기 내부에서 처리돼요)';
   try{
     const detections = await runDetection(file);
-    if(detections.length===0) throw new Error('패를 찾지 못했어요');
+    if(detections.length===0) throw new Error('패를 찾지 못했어요. 개발자 도구(F12) Console 탭에서 자세한 로그를 볼 수 있어요.');
 
     let redFives = 0;
     const codes = [];
