@@ -232,6 +232,35 @@
       </div>
       <div class="switch" id="riichiSwitch"><div class="knob"></div></div>
     </div>
+    <div class="switch-row" style="margin-top:10px;">
+      <div>
+        <div class="switch-label">멘젠 상태</div>
+        <div class="switch-sub">치·퐁·명깡 등으로 울었으면 꺼주세요 (안깡만 있으면 멘젠 유지)</div>
+      </div>
+      <div class="switch on" id="menzenSwitch"><div class="knob"></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">바람 정보</div>
+    <div style="margin-bottom:12px;">
+      <div class="switch-sub" style="margin-bottom:6px;">판 바람 (장풍)</div>
+      <div class="seg" id="roundWindSeg">
+        <button data-v="1" class="active">동</button>
+        <button data-v="2">남</button>
+        <button data-v="3">서</button>
+        <button data-v="4">북</button>
+      </div>
+    </div>
+    <div>
+      <div class="switch-sub" style="margin-bottom:6px;">자리 바람 (자풍)</div>
+      <div class="seg" id="seatWindSeg">
+        <button data-v="1" class="active">동</button>
+        <button data-v="2">남</button>
+        <button data-v="3">서</button>
+        <button data-v="4">북</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -274,8 +303,15 @@
       <span class="switch-sub">도라 개수</span>
       <input type="number" id="doraInput" min="0" max="10" value="0">
     </div>
+    <div class="num-input-row" style="margin: 0 0 14px;">
+      <span class="switch-sub">깡 개수 (사진으로는 구분이 안 돼요, 직접 입력)</span>
+      <input type="number" id="kanInput" min="0" max="4" value="0">
+    </div>
     <div class="switch-sub" style="margin-bottom:6px;">화료 패 (정확한 점수 계산을 위해 선택)</div>
     <div class="hand-row" id="winTilePicker"></div>
+
+    <div class="switch-sub" style="margin:16px 0 6px;">상황역 (해당하면 켜주세요 — 사진만으로는 알 수 없는 조건들이에요)</div>
+    <div id="situationalToggles"></div>
   </div>
 
   <div class="card" id="scoreCard" style="display:none;">
@@ -285,7 +321,7 @@
   </div>
 
   <footer>
-    이 도구는 참고용 보조 계산기예요. 콜패(치·퐁·깡)로 만든 조합, 자리·판 바람, 이파츠·하이테이 등 일부 특수 역은 정확히 반영되지 않을 수 있어요. 실제 판정은 함께하는 분들과 확인해주세요.<br><br>
+    이 도구는 참고용 보조 계산기예요. 울음 구역(치·퐁·깡으로 뺀 패)은 아직 사진으로 자동 인식되지 않아서, 멘젠 여부·깡 개수는 직접 입력해주셔야 해요. 일발·천화·지화 등 사진만으로 알 수 없는 상황역도 직접 토글해주세요. 실제 판정은 함께하는 분들과 확인해주세요.<br><br>
     패 인식 모델은 <a href="https://universe.roboflow.com/personal-ef39c/mahjong-tiles-model" target="_blank" style="color:var(--text-faint);">Mahjong Tiles Model (Roboflow Universe, CC BY 4.0)</a> 데이터셋으로 학습했어요.
   </footer>
 </div>
@@ -357,11 +393,26 @@ function ALL_CODES(){
 const state = {
   hand: [],          // array of tile codes, e.g. 'm1'
   riichi: false,
+  menzen: true,
+  roundWind: 1,       // 1=동 2=남 3=서 4=북
+  seatWind: 1,
   isDealer: false,
   method: 'ron',      // 'ron' | 'tsumo'
   dora: 0,
-  winTile: null       // tile code or null
+  winTile: null,      // tile code or null
+  kanCount: 0,
+  situational: { ippatsu:false, doubleRiichi:false, haitei:false, houtei:false, rinshan:false, chankan:false, tenhou:false, chiihou:false }
 };
+const SITUATIONAL_YAKU = [
+  { key:'doubleRiichi', label:'더블리치', desc:'첫 턴에 리치 선언', han:2, replacesRiichi:true },
+  { key:'ippatsu', label:'일발', desc:'리치 후 한 바퀴 안에 화료 (울림 없이)', han:1 },
+  { key:'rinshan', label:'영상개화', desc:'깡 후 뽑은 패로 화료', han:1 },
+  { key:'chankan', label:'창깡', desc:'상대의 가칸을 가로채 화료', han:1 },
+  { key:'haitei', label:'해저로월', desc:'마지막 패를 쯔모로 화료', han:1 },
+  { key:'houtei', label:'하저로어', desc:'마지막 버린 패로 론', han:1 },
+  { key:'tenhou', label:'천화', desc:'오야가 배패만으로 화료 (역만)', yakuman:true },
+  { key:'chiihou', label:'지화', desc:'자가 첫 쯔모로 화료 (역만)', yakuman:true }
+];
 
 /* ===================== 샹텐 계산 엔진 ===================== */
 function emptyCounts(){ return new Array(34).fill(0); }
@@ -467,16 +518,23 @@ function isKokushi(counts){
 function computeYaku(hand, ctx){
   const counts = countsFromHand(hand);
   const list = [];
-  let yakumanHan = 0;
+
+  // 천화/지화는 사진만으로 알 수 없어 사용자가 직접 토글해요
+  if(ctx.situational && ctx.situational.tenhou) list.push({name:'천화', han:13, yakuman:true});
+  else if(ctx.situational && ctx.situational.chiihou) list.push({name:'지화', han:13, yakuman:true});
 
   if(isKokushi(counts)){
     list.push({name:'국사무쌍', han:13, yakuman:true});
-    return { list, han:13, yakuman:true, decomposition:null, chiitoi:false };
+    const han = list.reduce((a,y)=>a+y.han,0);
+    return { list, han, yakuman:true, decomposition:null, chiitoi:false };
   }
 
-  const chiitoi = isChiitoi(counts);
-  const decomposition = chiitoi ? null : findDecomposition(counts);
-  if(!chiitoi && !decomposition){
+  // 손패가 "표준형(4멘츠+1페어)"과 "치토이츠(7쌍)"로 동시에 해석 가능한 경우가 있어요.
+  // (예: 1123456789p 패턴처럼 량페코 모양이 치토이츠 모양이기도 한 경우)
+  // 이럴 땐 더 높은 점수가 나오는 해석을 채택하는 게 마작 기본 규칙이에요.
+  const chiitoiPossible = isChiitoi(counts);
+  const decomposition = findDecomposition(counts);
+  if(!chiitoiPossible && !decomposition){
     return { list: [], han:0, yakuman:false, decomposition:null, chiitoi:false, invalid:true };
   }
 
@@ -487,115 +545,155 @@ function computeYaku(hand, ctx){
   const chinitsu = suitsUsed.size===1 && honorTileCount===0;
   const honitsu = suitsUsed.size===1 && honorTileCount>0;
   const allSimple = TERMINALS_HONORS.every(i=>counts[i]===0);
+  const allTermHonorHand = hand.every(code=>isTerminalOrHonor(tileIndex(code)));
 
-  // 역만 (요만) 체크 - 통일 그룹 기준
-  if(!chiitoi){
-    const allHonor = counts.slice(0,27).every(v=>v===0);
-    const allTerminal = counts.slice(27).every(v=>v===0) && TERMINALS_HONORS.filter(i=>i<27).every(i=>true) &&
-      decomposition.melds.every(m=>{
-        if(m.type==='triplet') return isTerminal(m.tile);
-        return false;
-      }) && isTerminal(decomposition.pair.tile);
-    const dragonTriplets = decomposition.melds.filter(m=>m.type==='triplet' && m.tile>=31).length;
-    const windTriplets = decomposition.melds.filter(m=>m.type==='triplet' && m.tile>=27 && m.tile<31).length;
-    const allTriplets = decomposition.melds.every(m=>m.type==='triplet');
-    const greenSet = new Set([18+1,18+2,18+3,18+5,18+7,32]); // s2,s3,s4,s6,s8,hatsu(z6=idx32)
-    const allGreen = hand.every(code=>greenSet.has(tileIndex(code)));
+  // 공통 역: 손패 구조와 무관하게 똑같이 적용되는 것들
+  const commonList = [];
+  if(ctx.riichi) commonList.push({name:'리치', han:1});
+  if(ctx.tsumo && ctx.closed) commonList.push({name:'멘젠쯔모', han:1});
+  if(allSimple) commonList.push({name:'탄야오', han:1});
+  const sit = ctx.situational || {};
+  if(sit.doubleRiichi) commonList.push({name:'더블리치', han:2});
+  if(sit.ippatsu) commonList.push({name:'일발', han:1});
+  if(sit.rinshan) commonList.push({name:'영상개화', han:1});
+  if(sit.chankan) commonList.push({name:'창깡', han:1});
+  if(sit.haitei) commonList.push({name:'해저로월', han:1});
+  if(sit.houtei) commonList.push({name:'하저로어', han:1});
 
-    if(allHonor){ list.push({name:'자일색', han:13, yakuman:true}); }
-    if(allTerminal){ list.push({name:'청노두', han:13, yakuman:true}); }
-    if(dragonTriplets===3){ list.push({name:'대삼원', han:13, yakuman:true}); }
-    if(windTriplets===4){ list.push({name:'대사희', han:26, yakuman:true}); }
-    else if(windTriplets===3 && decomposition.pair.tile>=27 && decomposition.pair.tile<31){ list.push({name:'소사희', han:13, yakuman:true}); }
-    if(allTriplets && ctx.closed){ list.push({name:'사암각', han:13, yakuman:true}); }
-    if(allGreen){ list.push({name:'녹일색', han:13, yakuman:true}); }
-  }
-  if(list.some(y=>y.yakuman)){
-    const han = list.reduce((a,y)=>a+y.han,0);
-    return { list, han, yakuman:true, decomposition, chiitoi:false };
-  }
-
-  // 일반 역
-  if(ctx.riichi) list.push({name:'리치', han:1});
-  if(ctx.tsumo && ctx.closed) list.push({name:'멘젠쯔모', han:1});
-  if(allSimple) list.push({name:'탄야오', han:1});
-
-  if(chiitoi){
-    list.push({name:'치토이츠', han:2});
-  } else {
+  // ---------- 표준형(4멘츠+1페어) 해석 ----------
+  let standardResult = null;
+  if(decomposition){
+    const sList = [...list, ...commonList];
     const melds = decomposition.melds, pair = decomposition.pair;
     const allRuns = melds.every(m=>m.type==='run');
     const allTriplets = melds.every(m=>m.type==='triplet');
 
-    // 야쿠하이 (삼원패만 자동 판정, 바람패는 정보로만 안내)
-    melds.filter(m=>m.type==='triplet' && m.tile>=31).forEach(m=>{
-      list.push({name:`역패 (${HONOR_NAMES[m.tile-27]})`, han:1});
-    });
+    // 역만 체크
+    const allHonor = counts.slice(0,27).every(v=>v===0);
+    const allTerminal = melds.every(m=> m.type==='triplet' && isTerminal(m.tile)) && isTerminal(pair.tile);
+    const dragonTriplets = melds.filter(m=>m.type==='triplet' && m.tile>=31).length;
+    const windTriplets = melds.filter(m=>m.type==='triplet' && m.tile>=27 && m.tile<31).length;
+    const greenSet = new Set([18+1,18+2,18+3,18+5,18+7,32]);
+    const allGreen = hand.every(code=>greenSet.has(tileIndex(code)));
 
-    // 핀후
-    if(ctx.closed && allRuns && !(pair.tile>=31)){
-      let ryanmen = true;
-      if(ctx.winTileIdx!=null){
-        const m = melds.find(mm=>{
-          const local = ctx.winTileIdx - mm.tile;
-          return local>=0 && local<=2;
-        });
-        if(m){
-          const local = ctx.winTileIdx - m.tile;
-          if(local===1) ryanmen=false;
-          if(local===0 && m.tile%9===6) ryanmen=false;
-          if(local===2 && m.tile%9===0) ryanmen=false;
-        } else if(ctx.winTileIdx===pair.tile){
-          ryanmen=false;
-        }
+    if(allHonor) sList.push({name:'자일색', han:13, yakuman:true});
+    if(allTerminal) sList.push({name:'청노두', han:13, yakuman:true});
+    if(dragonTriplets===3) sList.push({name:'대삼원', han:13, yakuman:true});
+    if(windTriplets===4) sList.push({name:'대사희', han:26, yakuman:true});
+    else if(windTriplets===3 && pair.tile>=27 && pair.tile<31) sList.push({name:'소사희', han:13, yakuman:true});
+    if(allTriplets && ctx.closed) sList.push({name:'사암각', han:13, yakuman:true});
+    if(allGreen) sList.push({name:'녹일색', han:13, yakuman:true});
+    if(ctx.kanCount===4) sList.push({name:'사깡즈', han:13, yakuman:true});
+    if(chinitsu && ctx.closed){
+      const suitIdx = [...suitsUsed][0];
+      const base = suitIdx*9;
+      const required = [3,1,1,1,1,1,1,1,3];
+      let matches = true, extra = 0;
+      for(let r=0;r<9;r++){
+        const c = counts[base+r];
+        if(c < required[r]){ matches=false; break; }
+        extra += c - required[r];
       }
-      if(ryanmen) list.push({name:'핀후', han:1});
+      if(matches && extra===1) sList.push({name:'구련보등', han:13, yakuman:true});
     }
 
-    // 이페코
-    const runKeys = melds.filter(m=>m.type==='run').map(m=>m.tile);
-    const seen = {};
-    let iipeiko=false;
-    runKeys.forEach(t=>{ seen[t]=(seen[t]||0)+1; if(seen[t]===2) iipeiko=true; });
-    if(iipeiko && ctx.closed) list.push({name:'이페이코', han:1});
+    if(sList.some(y=>y.yakuman)){
+      const han = sList.reduce((a,y)=>a+y.han,0);
+      standardResult = { list: sList, han, yakuman:true, decomposition, chiitoi:false };
+    } else {
+      // 야쿠하이: 삼원패는 항상, 바람패는 판바람/자리바람과 일치할 때 자동 판정
+      melds.filter(m=>m.type==='triplet' && m.tile>=31).forEach(m=>{
+        sList.push({name:`역패 (${HONOR_NAMES[m.tile-27]})`, han:1});
+      });
+      melds.filter(m=>m.type==='triplet' && m.tile>=27 && m.tile<31).forEach(m=>{
+        const windNum = m.tile-27+1;
+        if(windNum===ctx.roundWind) sList.push({name:`역패 (장풍 ${HONOR_NAMES[windNum-1]})`, han:1});
+        if(windNum===ctx.seatWind) sList.push({name:`역패 (자풍 ${HONOR_NAMES[windNum-1]})`, han:1});
+      });
 
-    // 산쇼쿠 도준
-    for(let n=0;n<7;n++){
-      const hasM = melds.some(m=>m.type==='run' && m.tile===n);
-      const hasP = melds.some(m=>m.type==='run' && m.tile===9+n);
-      const hasS = melds.some(m=>m.type==='run' && m.tile===18+n);
-      if(hasM&&hasP&&hasS){ list.push({name:'삼색동순', han: ctx.closed?2:1}); break; }
-    }
-    // 일기통관
-    ['m','p','s'].forEach((s,si)=>{
-      const base = si*9;
-      const has123 = melds.some(m=>m.type==='run'&&m.tile===base);
-      const has456 = melds.some(m=>m.type==='run'&&m.tile===base+3);
-      const has789 = melds.some(m=>m.type==='run'&&m.tile===base+6);
-      if(has123&&has456&&has789) list.push({name:'일기통관', han: ctx.closed?2:1});
-    });
-    // 찬타 / 준찬
-    const groupHasTerminalOrHonor = (m)=>{
-      if(m.type==='triplet') return isTerminalOrHonor(m.tile);
-      return m.tile%9===0 || m.tile%9===6; // run contains 1 or 9
-    };
-    const allGroupsChanta = melds.every(groupHasTerminalOrHonor) && isTerminalOrHonor(pair.tile);
-    if(allGroupsChanta){
-      const noHonors = melds.every(m=> m.type==='run' ? true : !isHonor(m.tile)) && !isHonor(pair.tile);
-      if(noHonors) list.push({name:'준찬타', han: ctx.closed?3:2});
-      else list.push({name:'찬타', han: ctx.closed?2:1});
-    }
-    // 토이토이
-    if(allTriplets) list.push({name:'토이토이', han:2});
+      // 핀후
+      if(ctx.closed && allRuns && !(pair.tile>=31)){
+        let ryanmen = true;
+        if(ctx.winTileIdx!=null){
+          const m = melds.find(mm=>{ const local = ctx.winTileIdx - mm.tile; return local>=0 && local<=2; });
+          if(m){
+            const local = ctx.winTileIdx - m.tile;
+            if(local===1) ryanmen=false;
+            if(local===0 && m.tile%9===6) ryanmen=false;
+            if(local===2 && m.tile%9===0) ryanmen=false;
+          } else if(ctx.winTileIdx===pair.tile){ ryanmen=false; }
+        }
+        if(ryanmen) sList.push({name:'핀후', han:1});
+      }
 
-    if(chinitsu) list.push({name:'청일색', han: ctx.closed?6:5});
-    else if(honitsu) list.push({name:'혼일색', han: ctx.closed?3:2});
+      // 이페코 / 량페코
+      if(ctx.closed && allRuns){
+        const runSeen = {};
+        melds.forEach(m=>{ runSeen[m.tile]=(runSeen[m.tile]||0)+1; });
+        const pairCount = Object.values(runSeen).filter(v=>v===2).length;
+        if(pairCount===2) sList.push({name:'량페코', han:3});
+        else if(pairCount===1) sList.push({name:'이페이코', han:1});
+      }
+
+      if(allTermHonorHand) sList.push({name:'혼노두(혼전두)', han:2});
+
+      const tripletCount = melds.filter(m=>m.type==='triplet').length;
+      if(tripletCount===3) sList.push({name:'삼암각', han:2});
+
+      for(let n=0;n<9;n++){
+        const hasM = melds.some(m=>m.type==='triplet' && m.tile===n);
+        const hasP = melds.some(m=>m.type==='triplet' && m.tile===9+n);
+        const hasS = melds.some(m=>m.type==='triplet' && m.tile===18+n);
+        if(hasM&&hasP&&hasS){ sList.push({name:'삼색동각', han:2}); break; }
+      }
+
+      if(ctx.kanCount===3) sList.push({name:'삼깡즈', han:2});
+
+      for(let n=0;n<7;n++){
+        const hasM = melds.some(m=>m.type==='run' && m.tile===n);
+        const hasP = melds.some(m=>m.type==='run' && m.tile===9+n);
+        const hasS = melds.some(m=>m.type==='run' && m.tile===18+n);
+        if(hasM&&hasP&&hasS){ sList.push({name:'삼색동순', han: ctx.closed?2:1}); break; }
+      }
+      ['m','p','s'].forEach((s,si)=>{
+        const base = si*9;
+        const has123 = melds.some(m=>m.type==='run'&&m.tile===base);
+        const has456 = melds.some(m=>m.type==='run'&&m.tile===base+3);
+        const has789 = melds.some(m=>m.type==='run'&&m.tile===base+6);
+        if(has123&&has456&&has789) sList.push({name:'일기통관', han: ctx.closed?2:1});
+      });
+      const groupHasTerminalOrHonor = (m)=> m.type==='triplet' ? isTerminalOrHonor(m.tile) : (m.tile%9===0 || m.tile%9===6);
+      const allGroupsChanta = melds.every(groupHasTerminalOrHonor) && isTerminalOrHonor(pair.tile);
+      if(allGroupsChanta){
+        const noHonors = melds.every(m=> m.type==='run' ? true : !isHonor(m.tile)) && !isHonor(pair.tile);
+        if(noHonors) sList.push({name:'준찬타', han: ctx.closed?3:2});
+        else sList.push({name:'찬타', han: ctx.closed?2:1});
+      }
+      if(allTriplets) sList.push({name:'토이토이', han:2});
+      if(chinitsu) sList.push({name:'청일색', han: ctx.closed?6:5});
+      else if(honitsu) sList.push({name:'혼일색', han: ctx.closed?3:2});
+
+      if(ctx.dora>0) sList.push({name:'도라', han: ctx.dora});
+      const han = sList.reduce((a,y)=>a+y.han,0);
+      standardResult = { list: sList, han, yakuman:false, decomposition, chiitoi:false };
+    }
   }
 
-  if(ctx.dora>0) list.push({name:`도라`, han: ctx.dora});
+  // ---------- 치토이츠(7쌍) 해석 ----------
+  let chiitoiResult = null;
+  if(chiitoiPossible){
+    const cList = [...list, ...commonList, {name:'치토이츠', han:2}];
+    if(allTermHonorHand) cList.push({name:'혼노두(혼전두)', han:2});
+    if(chinitsu) cList.push({name:'청일색', han:6});
+    else if(honitsu) cList.push({name:'혼일색', han:3});
+    if(ctx.dora>0) cList.push({name:'도라', han: ctx.dora});
+    const han = cList.reduce((a,y)=>a+y.han,0);
+    chiitoiResult = { list: cList, han, yakuman:false, decomposition:null, chiitoi:true };
+  }
 
-  const han = list.reduce((a,y)=>a+y.han,0);
-  return { list, han, yakuman:false, decomposition, chiitoi };
+  // 더 높은 점수(판수) 쪽을 채택 — 역만은 항상 13판 이상이라 자동으로 우선됨
+  if(standardResult && chiitoiResult) return standardResult.han >= chiitoiResult.han ? standardResult : chiitoiResult;
+  return standardResult || chiitoiResult;
 }
 
 function tripletFuValue(tileIdx, concealed){
@@ -620,22 +718,47 @@ function computeFu(hand, res, ctx){
       fu += tripletFuValue(m.tile, concealed);
     }
   });
-  if(pair.tile>=31) fu += 2; // 삼원패 페어
+  if(pair.tile>=31){
+    const isDragon = pair.tile>=31;
+    const isSeatWind = pair.tile>=27 && pair.tile<31 && (pair.tile-27+1)===ctx.seatWind;
+    const isRoundWind = pair.tile>=27 && pair.tile<31 && (pair.tile-27+1)===ctx.roundWind;
+    if(isDragon) fu += 2;
+    if(isSeatWind) fu += 2;
+    if(isRoundWind) fu += 2; // 더블 바람이면 4부 (장풍+자풍 둘 다)
+  }
 
   if(ctx.winTileIdx!=null){
     if(ctx.winTileIdx===pair.tile){
-      fu += 2; // 탄키
+      fu += 2; // 단기
+    } else if(melds.some(m=>m.type==='triplet' && m.tile===ctx.winTileIdx)){
+      // 샤보 대기는 추가 부수 없음(트리플렛 자체의 멘젠/퐁 여부로 이미 반영됨)
     } else {
       const m = melds.find(mm=> mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
       if(m){
         const local = ctx.winTileIdx-m.tile;
-        if(local===1) fu+=2; // 칸찬
-        else if(local===0 && m.tile%9===6) fu+=2; // 펜찬 (789 대기 7)
-        else if(local===2 && m.tile%9===0) fu+=2; // 펜찬 (123 대기 3)
+        if(local===1) fu+=2; // 간짱
+        else if(local===0 && m.tile%9===6) fu+=2; // 변짱 (789 대기 7)
+        else if(local===2 && m.tile%9===0) fu+=2; // 변짱 (123 대기 3)
       }
     }
   }
   return Math.ceil(fu/10)*10;
+}
+
+function waitShapeLabel(res, ctx){
+  if(res.chiitoi || !res.decomposition || ctx.winTileIdx==null) return null;
+  const { melds, pair } = res.decomposition;
+  if(ctx.winTileIdx===pair.tile) return '단기';
+  if(melds.some(m=>m.type==='triplet' && m.tile===ctx.winTileIdx)) return '샤보';
+  const m = melds.find(mm=>mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
+  if(m){
+    const local = ctx.winTileIdx-m.tile;
+    if(local===1) return '간짱';
+    if(local===0 && m.tile%9===6) return '변짱';
+    if(local===2 && m.tile%9===0) return '변짱';
+    return '양면';
+  }
+  return null;
 }
 
 function scoreFromHanFu(han, fu, isDealer, tsumo){
@@ -683,8 +806,19 @@ function candidateYaku(counts, handLen){
 
   for(let i=27;i<34;i++){
     if(counts[i]>=2){
-      const label = i>=31 ? `역패(${HONOR_NAMES[i-27]})` : `바람패(${HONOR_NAMES[i-27]})`;
-      list.push({name:label+' 후보', desc:`${counts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
+      if(i>=31){
+        list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${counts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
+      } else {
+        const windNum = i-27+1;
+        const matchesRound = windNum===state.roundWind;
+        const matchesSeat = windNum===state.seatWind;
+        if(matchesRound || matchesSeat){
+          const tag = matchesRound && matchesSeat ? '장풍+자풍, 더블 역패' : matchesRound ? '장풍' : '자풍';
+          list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${counts[i]}장 보유 · ${tag} 일치 — 3장 모으면 역이 돼요`});
+        } else {
+          list.push({name:`바람패(${HONOR_NAMES[i-27]})`, desc:`${counts[i]}장 보유 · 지금 판/자리 바람과는 안 맞아서 역패는 아니에요`});
+        }
+      }
     }
   }
   const suitsUsed = new Set(); let honorCount=0;
@@ -699,7 +833,7 @@ function candidateYaku(counts, handLen){
   for(let i=0;i<34;i++){ if(counts[i]===2) pairTypes++; if(counts[i]>=3) tripletTypes++; }
   if(pairTypes+tripletTypes>=3) list.push({name:'토이토이 / 치토이츠 후보', desc:'짝을 맞춘 패가 많이 보여요'});
 
-  list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
+  if(state.menzen) list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
   return list;
 }
 
@@ -737,6 +871,13 @@ function renderHand(){
 
 function render(){
   renderHand();
+
+  // 리치는 멘젠 전제 조건이라, 멘젠이 꺼지면 리치도 자동으로 꺼요
+  if(!state.menzen && state.riichi){
+    state.riichi = false;
+    document.getElementById('riichiSwitch').classList.remove('on');
+  }
+
   const counts = countsFromHand(state.hand);
   const len = state.hand.length;
 
@@ -766,6 +907,7 @@ function render(){
     completeCard.style.display='block';
     scoreCard.style.display='block';
     renderWinTilePicker();
+    renderSituationalToggles();
     renderScore();
   } else if(len===13 && sh===0){
     statusNum.textContent='텐파이';
@@ -775,8 +917,8 @@ function render(){
     candCard.style.display='block';
     renderCandidates(counts, len);
   } else {
-    statusNum.textContent = sh<0 ? '-' : (sh+'샹텐');
-    statusLabel.textContent = len<13 ? `아직 ${13-len}장 더 필요해요` : (len===14 ? '완성까지 좀 더 다듬어야 해요' : '완성까지 남은 교환 횟수예요');
+    statusNum.textContent = sh<0 ? '-' : (sh+'단계');
+    statusLabel.textContent = len<13 ? `아직 ${13-len}장 더 필요해요` : (len===14 ? `텐파이까지 ${sh}번 더 패를 바꿔야 해요` : `텐파이까지 ${sh}번 더 패를 바꿔야 해요 (교환 횟수 기준)`);
     candCard.style.display='block';
     renderCandidates(counts, len);
     if(len===14){
@@ -810,14 +952,14 @@ function renderDiscards(counts){
     if(counts[t]===0) continue;
     counts[t]--;
     const sh13 = overallShanten(counts);
-    let ukeireTypes=0, ukeireTiles=0;
+    let ukeireTypes=0, ukeireTiles=0, waitList=[];
     if(sh13===0){
-      const waits = waitingTiles(counts);
-      ukeireTypes = waits.length;
-      ukeireTiles = waits.reduce((a,w)=>a+(4-counts[w]),0);
+      waitList = waitingTiles(counts);
+      ukeireTypes = waitList.length;
+      ukeireTiles = waitList.reduce((a,w)=>a+(4-counts[w]),0);
     }
     counts[t]++;
-    candidates.push({ tile:t, sh13, ukeireTypes, ukeireTiles });
+    candidates.push({ tile:t, sh13, ukeireTypes, ukeireTiles, waitList });
   }
   candidates.sort((a,b)=> a.sh13-b.sh13 || b.ukeireTiles-a.ukeireTiles );
   const top = candidates.slice(0,5);
@@ -829,10 +971,19 @@ function renderDiscards(counts){
     const rank = document.createElement('div'); rank.className='rank'; rank.textContent=(i+1);
     const tileWrap = tileEl(indexToCode(c.tile), { small:true });
     const info = document.createElement('div'); info.className='info';
-    const shTxt = c.sh13===-1?'화료':(c.sh13===0?'텐파이':c.sh13+'샹텐');
+    const shTxt = c.sh13===-1?'화료':(c.sh13===0?'텐파이':c.sh13+'단계 남음');
     info.innerHTML = `<b>${tileKor(c.tile)}</b> 버리기 → <b>${shTxt}</b>` + (c.sh13===0?`<br>대기 ${c.ukeireTypes}종 · 남은 ${c.ukeireTiles}장`:'');
     row.appendChild(rank); row.appendChild(tileWrap); row.appendChild(info);
     el.appendChild(row);
+    if(c.sh13===0 && c.waitList.length>0){
+      const waitRow = document.createElement('div');
+      waitRow.className='wait-grid';
+      waitRow.style.margin='-4px 0 8px 34px';
+      c.waitList.sort((a,b)=>a-b).forEach(w=>{
+        waitRow.appendChild(tileEl(indexToCode(w), { small:true }));
+      });
+      el.appendChild(waitRow);
+    }
   });
 }
 
@@ -870,14 +1021,39 @@ function renderWinTilePicker(){
   });
 }
 
+function renderSituationalToggles(){
+  const wrap = document.getElementById('situationalToggles');
+  wrap.innerHTML='';
+  SITUATIONAL_YAKU.forEach(y=>{
+    const row = document.createElement('div');
+    row.className='switch-row';
+    row.style.padding='6px 0';
+    const on = state.situational[y.key];
+    row.innerHTML = `<div><div class="switch-label">${y.label}${y.yakuman?' (역만)':''}</div><div class="switch-sub">${y.desc}</div></div>`;
+    const sw = document.createElement('div');
+    sw.className = 'switch'+(on?' on':'');
+    sw.innerHTML = '<div class="knob"></div>';
+    sw.addEventListener('click', ()=>{
+      state.situational[y.key] = !state.situational[y.key];
+      render();
+    });
+    row.appendChild(sw);
+    wrap.appendChild(row);
+  });
+}
+
 function renderScore(){
   const ctx = {
-    riichi: state.riichi,
+    riichi: state.riichi && !state.situational.doubleRiichi, // 더블리치면 리치 대신 더블리치로 계산
     tsumo: state.method==='tsumo',
     method: state.method,
-    closed: true,
+    closed: state.menzen,
+    roundWind: state.roundWind,
+    seatWind: state.seatWind,
     dora: Number(state.dora)||0,
-    winTileIdx: state.winTile ? tileIndex(state.winTile) : null
+    winTileIdx: state.winTile ? tileIndex(state.winTile) : null,
+    situational: state.situational,
+    kanCount: Number(state.kanCount)||0
   };
   const res = computeYaku(state.hand, ctx);
   const yakuEl = document.getElementById('yakuFinalList');
@@ -913,7 +1089,8 @@ function renderScore(){
   const scoreInfo = scoreFromHanFu(res.han, fu, state.isDealer, ctx.tsumo);
   const hanfu = document.createElement('div');
   hanfu.className='hanfu-line';
-  hanfu.textContent = `${res.han}판 ${fu}부`;
+  const waitLabel = waitShapeLabel(res, ctx);
+  hanfu.textContent = `${res.han}판 ${fu}부` + (waitLabel ? ` · 대기: ${waitLabel}` : '');
   scoreEl.appendChild(hanfu);
 
   const box = document.createElement('div');
@@ -929,7 +1106,7 @@ function renderScore(){
   if(ctx.winTileIdx==null){
     const note = document.createElement('div');
     note.className='warn-box';
-    note.textContent = '화료 패를 선택하면 대기 모양(칸찬/펜찬/탄키 등)까지 반영해 더 정확하게 계산해요.';
+    note.textContent = '화료 패를 선택하면 대기 모양(양면·단기·샤보·간짱·변짱)까지 반영해 더 정확하게 계산해요.';
     scoreEl.appendChild(note);
   }
 }
@@ -1005,9 +1182,28 @@ document.getElementById('riichiSwitch').addEventListener('click', function(){
   this.classList.toggle('on', state.riichi);
   render();
 });
+document.getElementById('menzenSwitch').addEventListener('click', function(){
+  state.menzen = !state.menzen;
+  this.classList.toggle('on', state.menzen);
+  render();
+});
 document.getElementById('dealerSwitch').addEventListener('click', function(){
   state.isDealer = !state.isDealer;
   this.classList.toggle('on', state.isDealer);
+  render();
+});
+document.getElementById('roundWindSeg').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  state.roundWind = Number(btn.dataset.v);
+  [...document.getElementById('roundWindSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
+  render();
+});
+document.getElementById('seatWindSeg').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  state.seatWind = Number(btn.dataset.v);
+  [...document.getElementById('seatWindSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
   render();
 });
 document.getElementById('tsumoRonSeg').addEventListener('click', (e)=>{
@@ -1015,6 +1211,10 @@ document.getElementById('tsumoRonSeg').addEventListener('click', (e)=>{
   if(!btn) return;
   state.method = btn.dataset.v;
   [...document.getElementById('tsumoRonSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
+  render();
+});
+document.getElementById('kanInput').addEventListener('input', (e)=>{
+  state.kanCount = Number(e.target.value)||0;
   render();
 });
 document.getElementById('doraInput').addEventListener('input', (e)=>{
