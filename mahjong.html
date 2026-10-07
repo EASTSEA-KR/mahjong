@@ -1594,28 +1594,54 @@ async function runDetection(file){
 /* ===================== 손패 / 울음구역 자동 분리 ===================== */
 // 한 장의 사진에 손패 + 울음구역(우하단)이 같이 나온 경우, 위치를 기준으로 둘을 나눠요.
 // 확실하지 않으면 전부 손패로 간주하고, 울음구역은 비워둬서 사용자가 수동으로 추가하게 해요.
-function splitHandAndMelds(dets){
-  if(dets.length===0) return { handDets:[], meldDets:[] };
-  const withCenter = dets.map(d=>({ ...d, cx:(d.x1+d.x2)/2, cy:(d.y1+d.y2)/2, h:(d.y2-d.y1) }));
-  const avgH = withCenter.reduce((a,d)=>a+d.h,0)/withCenter.length;
-  const sortedY = [...withCenter].sort((a,b)=>a.cy-b.cy);
+function biggestGap(sortedByV){
+  let maxGap=0, idx=-1;
+  for(let i=1;i<sortedByV.length;i++){
+    const gap = sortedByV[i].v - sortedByV[i-1].v;
+    if(gap>maxGap){ maxGap=gap; idx=i; }
+  }
+  return { maxGap, idx };
+}
 
-  let maxGap=0, splitIdx=-1;
-  for(let i=1;i<sortedY.length;i++){
-    const gap = sortedY[i].cy - sortedY[i-1].cy;
-    if(gap>maxGap){ maxGap=gap; splitIdx=i; }
-  }
-  // 뚜렷한 '행' 구분(패 높이의 80% 이상 간격)이 없으면 전부 손패로 처리
-  if(splitIdx===-1 || maxGap < avgH*0.8){
+// 손패와 울음구역이 꼭 '위/아래'로 나뉜다는 보장이 없어요 (자동마작탁은 보통 손패 옆으로
+// 같은 높이에서 이어지는 경우가 많아요). 그래서 X축/Y축 중 패 크기 대비 더 뚜렷하게
+// 벌어진 쪽을 골라서 그 축으로 분리해요. 두 그룹 중 수가 적은 쪽을 울음구역으로 간주해요.
+function splitHandAndMelds(dets){
+  if(dets.length<4) return { handDets: dets, meldDets: [] };
+  const withCenter = dets.map(d=>({ ...d, cx:(d.x1+d.x2)/2, cy:(d.y1+d.y2)/2, w:(d.x2-d.x1), h:(d.y2-d.y1) }));
+  const avgW = withCenter.reduce((a,d)=>a+d.w,0)/withCenter.length;
+  const avgH = withCenter.reduce((a,d)=>a+d.h,0)/withCenter.length;
+
+  const byX = [...withCenter].sort((a,b)=>a.cx-b.cx).map(d=>({ ...d, v:d.cx }));
+  const byY = [...withCenter].sort((a,b)=>a.cy-b.cy).map(d=>({ ...d, v:d.cy }));
+  const gapX = biggestGap(byX);
+  const gapY = biggestGap(byY);
+  const relX = gapX.idx>=0 ? gapX.maxGap/avgW : 0;
+  const relY = gapY.idx>=0 ? gapY.maxGap/avgH : 0;
+  console.log(`분리 간격 — X축: ${relX.toFixed(2)}배, Y축: ${relY.toFixed(2)}배 (패 크기 대비)`);
+
+  const THRESH = 1.8; // 패 크기의 1.8배 이상 벌어져야 '분리된 구역'으로 인정해요
+  let sorted=null, idx=-1;
+  if(relX>=THRESH && relX>=relY){ sorted=byX; idx=gapX.idx; }
+  else if(relY>=THRESH){ sorted=byY; idx=gapY.idx; }
+
+  if(!sorted){
+    console.log('뚜렷한 분리 간격을 못 찾아서 전부 손패로 처리해요.');
     return { handDets: dets, meldDets: [] };
   }
-  const upper = sortedY.slice(0, splitIdx);
-  const lower = sortedY.slice(splitIdx);
-  // 울음구역은 보통 손패보다 적은 매수(≤11장)예요. 아래쪽이 너무 크면 손패가 두 줄로 찍힌 것뿐일 수 있어 분리하지 않아요.
-  if(lower.length===0 || lower.length>11 || upper.length<2){
+
+  const group1 = sorted.slice(0, idx); // 더 왼쪽/위쪽 (원점에 가까운 쪽)
+  const group2 = sorted.slice(idx);    // 더 오른쪽/아래쪽
+  // 패 수가 아니라 위치로 판단해요: 울음구역은 보통 손패보다 오른쪽이나 아래쪽(바깥쪽)에 놓여요.
+  // (패 수로 비교하면 멜드가 여러 세트일 때 손패보다 많아지는 경우 거꾸로 판정될 수 있어요)
+  const handCandidates = group1;
+  const meldCandidates = group2;
+
+  if(meldCandidates.length===0 || meldCandidates.length>11 || handCandidates.length<2){
+    console.log('분리된 그룹 크기가 애매해서(0개 또는 11장 초과) 전부 손패로 처리해요.');
     return { handDets: dets, meldDets: [] };
   }
-  return { handDets: upper, meldDets: lower };
+  return { handDets: handCandidates, meldDets: meldCandidates };
 }
 
 // X좌표 간격을 기준으로 울음구역 패들을 3~4장씩 세트로 묶어요
