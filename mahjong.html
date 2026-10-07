@@ -107,11 +107,11 @@
   .hand-row{ display:flex; gap:5px; flex-wrap:wrap; }
   .hand-row .tile.large{
     flex: 0 0 calc((100% - 30px)/7);
-    width:auto; height:auto; aspect-ratio: 34/46; font-size:26px; border-radius:7px;
+    width:auto; height:auto; aspect-ratio: 34/46; font-size:34px; border-radius:7px;
   }
   .hand-row .tile-add.large{
     flex: 0 0 calc((100% - 30px)/7);
-    width:auto; height:auto; aspect-ratio: 34/46; font-size:26px; border-radius:7px;
+    width:auto; height:auto; aspect-ratio: 34/46; font-size:34px; border-radius:7px;
   }
   .two-col{ display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
   @media (max-width: 380px){ .two-col{ grid-template-columns: 1fr; gap:14px; } }
@@ -209,6 +209,15 @@
   </header>
 
   <div class="card">
+    <div class="card-title">마작 인원</div>
+    <div class="seg" id="playerCountSeg">
+      <button data-v="3">3인</button>
+      <button data-v="4" class="active">4인</button>
+    </div>
+    <div class="count-note" style="margin-top:8px;">점수 계산 시 인당 지불 금액에만 반영돼요. 패 구성(만수 1~9 전체 사용 등)은 4인 기준 그대로예요.</div>
+  </div>
+
+  <div class="card">
     <div class="two-col">
       <div>
         <div class="card-title" style="margin-bottom:10px;">바람 정보</div>
@@ -221,7 +230,7 @@
             <button data-v="4">북</button>
           </div>
         </div>
-        <div>
+        <div style="margin-bottom:12px;">
           <div class="switch-sub" style="margin-bottom:6px;">자리 바람 (자풍)</div>
           <div class="seg" id="seatWindSeg">
             <button data-v="1" class="active">동</button>
@@ -229,6 +238,10 @@
             <button data-v="3">서</button>
             <button data-v="4">북</button>
           </div>
+        </div>
+        <div class="num-input-row">
+          <span class="switch-sub">연장 (혼바)</span>
+          <input type="number" id="honbaInput" min="0" max="20" value="0">
         </div>
       </div>
       <div>
@@ -278,6 +291,18 @@
     <div class="card-title">현재 손패 <span class="n" id="handCountLabel"></span></div>
     <div class="hand-row" id="handRow"></div>
     <div class="count-note">패를 탭하면 수정하거나 지울 수 있어요. 13장이면 대기 상태, 14장이면 버릴 패를 계산해요.</div>
+  </div>
+
+  <div class="card" id="meldsCard">
+    <div class="card-title">울음 구역 (치·퐁·깡) <span class="n" id="meldsCountLabel"></span></div>
+    <div id="meldsList"></div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-ghost btn-sm" id="btnAddMeld">+ 세트 수동 추가</button>
+    </div>
+    <div class="count-note" style="margin-top:8px;">
+      <b>베타 기능</b> — 사진에서 자동으로 묶은 세트는 틀릴 수 있어요, 꼭 확인해주세요.
+      지금은 역·점수 계산에는 아직 반영되지 않고, 인식/정리 용도로만 쓰여요.
+    </div>
   </div>
 
   <div class="card">
@@ -346,9 +371,17 @@
       <h3 id="pickerTitle">패 선택</h3>
       <button class="modal-close" id="pickerClose">×</button>
     </div>
+    <div id="meldPreviewWrap" style="display:none; margin-bottom:12px;">
+      <div class="switch-sub" style="margin-bottom:6px;">선택한 패 (탭해서 뺄 수 있어요)</div>
+      <div class="hand-row" id="meldPreviewRow"></div>
+    </div>
     <div id="pickerBody"></div>
     <div class="btn-row" style="margin-top:14px;">
       <button class="btn btn-red btn-sm" id="pickerRemove" style="display:none;">이 패 삭제</button>
+      <button class="btn btn-sm" id="meldConfirmChi" style="display:none;">치로 묶기 (3장)</button>
+      <button class="btn btn-sm" id="meldConfirmPon" style="display:none;">퐁으로 묶기 (3장)</button>
+      <button class="btn btn-sm" id="meldConfirmKan" style="display:none;">명깡으로 묶기 (4장)</button>
+      <button class="btn btn-sm" id="meldConfirmAnkan" style="display:none;">안깡으로 묶기 (4장)</button>
     </div>
   </div>
 </div>
@@ -415,6 +448,9 @@ const state = {
   dora: 0,
   winTile: null,      // tile code or null
   kanCount: 0,
+  playerCount: 4,
+  honba: 0,
+  melds: [],          // [{tiles:[code,...], type:'chi'|'pon'|'kan'|'unknown', concealed:bool}]
   situational: { ippatsu:false, doubleRiichi:false, haitei:false, houtei:false, rinshan:false, chankan:false, tenhou:false, chiihou:false }
 };
 const SITUATIONAL_YAKU = [
@@ -775,9 +811,37 @@ function waitShapeLabel(res, ctx){
   return null;
 }
 
-function scoreFromHanFu(han, fu, isDealer, tsumo){
+function scoreFromHanFu(han, fu, isDealer, tsumo, playerCount, honba){
+  playerCount = playerCount===3 ? 3 : 4;
+  honba = Number(honba)||0;
+  const honbaRon = honba*300;
+  const honbaEach = honba*100;
+
+  function tsumoBreakdown(base){
+    // base: 한바(혼바 제외) 기준 "화료자가 받는 총점"
+    if(isDealer){
+      const numPayers = playerCount-1; // 4인:3명 / 3인:2명
+      const each = Math.round((base/numPayers)/100)*100 + honbaEach;
+      const total = each*numPayers;
+      const payers = Array.from({length:numPayers}, (_,i)=>({ label: numPayers>1?`자 ${i+1}`:'자', amount: each }));
+      return { total, detail:`전원 ${each.toLocaleString()}점씩 지불`, payers };
+    } else {
+      const otherCount = playerCount-2; // 4인:2명 / 3인:1명
+      const dealerPay = Math.round((base/2)/100)*100 + honbaEach;
+      const otherPay = otherCount>0 ? Math.round((base/4)/100)*100 + honbaEach : 0;
+      const total = dealerPay + otherPay*otherCount;
+      const payers = [{ label:'오야(타인)', amount: dealerPay }];
+      for(let i=0;i<otherCount;i++) payers.push({ label: otherCount>1?`자 ${i+1}`:'자', amount: otherPay });
+      return { total, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩`, payers };
+    }
+  }
+
   let name=null, base;
-  if(han>=13){ name='역만'; base = isDealer?48000:32000; }
+  if(han>=13){
+    const multiple = Math.round(han/13); // 더블역만(26판) 등 배수 역만 반영
+    name = multiple>=2 ? `역만 ×${multiple}` : '역만';
+    base = multiple * (isDealer?48000:32000);
+  }
   else if(han>=11){ name='삼배만'; base = isDealer?36000:24000; }
   else if(han>=8){ name='배만'; base = isDealer?24000:16000; }
   else if(han>=6){ name='하네만'; base = isDealer?18000:12000; }
@@ -787,28 +851,32 @@ function scoreFromHanFu(han, fu, isDealer, tsumo){
     else{
       basic = Math.min(basic,2000);
       if(tsumo){
+        // 기본(만관 미만) 구간은 1인당 금액이 고정 배율이라 base 역산 없이 직접 계산해요
         if(isDealer){
-          const each = Math.ceil(basic*2/100)*100;
-          return { name:null, total: each*3, detail:`전원 ${each.toLocaleString()}점씩 지불` };
+          const each = Math.ceil(basic*2/100)*100 + honbaEach;
+          const numPayers = playerCount-1;
+          return { name:null, total: each*numPayers, detail:`전원 ${each.toLocaleString()}점씩 지불`, payers: Array.from({length:numPayers},(_,i)=>({label:numPayers>1?`자 ${i+1}`:'자', amount:each})) };
         } else {
-          const dealerPay = Math.ceil(basic*2/100)*100;
-          const otherPay = Math.ceil(basic/100)*100;
-          return { name:null, total: dealerPay+otherPay*2, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩` };
+          const dealerPay = Math.ceil(basic*2/100)*100 + honbaEach;
+          const otherCount = playerCount-2;
+          const otherPay = otherCount>0 ? Math.ceil(basic/100)*100 + honbaEach : 0;
+          const payers = [{label:'오야(타인)', amount:dealerPay}];
+          for(let i=0;i<otherCount;i++) payers.push({label:otherCount>1?`자 ${i+1}`:'자', amount:otherPay});
+          return { name:null, total: dealerPay+otherPay*otherCount, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩`, payers };
         }
       } else {
         const mult = isDealer?6:4;
-        const pts = Math.ceil(basic*mult/100)*100;
-        return { name:null, total: pts, detail: isDealer? '상대에게 론' : '방총자에게 론' };
+        const pts = Math.ceil(basic*mult/100)*100 + honbaRon;
+        return { name:null, total: pts, detail: isDealer? '상대에게 론' : '방총자에게 론', payers:[{label:'방총자', amount: pts}] };
       }
     }
   }
   if(tsumo){
-    if(isDealer){ const each=Math.round(base/3/100)*100; return { name, total: base, detail:`전원 ${each.toLocaleString()}점씩 지불` }; }
-    const dealerPay = Math.round(base/2/100)*100;
-    const otherPay = Math.round(base/4/100)*100;
-    return { name, total: base, detail:`오야 ${dealerPay.toLocaleString()}점 · 자 ${otherPay.toLocaleString()}점씩` };
+    const r = tsumoBreakdown(base);
+    return { name, total: r.total, detail: r.detail, payers: r.payers };
   }
-  return { name, total: base, detail: '론으로 획득' };
+  const total = base + honbaRon;
+  return { name, total, detail: '론으로 획득', payers:[{label:'방총자', amount: total}] };
 }
 
 /* ===================== 후보 역 휴리스틱 ===================== */
@@ -883,8 +951,42 @@ function renderHand(){
   document.getElementById('handCountLabel').textContent = `(${state.hand.length}/14)`;
 }
 
+const MELD_TYPE_LABEL = { chi:'치', pon:'퐁', kan:'명깡', unknown:'확인 필요' };
+
+function renderMelds(){
+  const wrap = document.getElementById('meldsList');
+  wrap.innerHTML='';
+  state.melds.forEach((m, idx)=>{
+    const row = document.createElement('div');
+    row.className='discard-pick'; // 기존 스타일(타일 줄 + 텍스트) 재사용
+    const tilesWrap = document.createElement('div');
+    tilesWrap.className='hand-row';
+    tilesWrap.style.flex='1';
+    m.tiles.forEach(code=>{
+      const g = document.createElement('div');
+      g.className='tile small';
+      g.textContent = meldTileGlyph(code);
+      tilesWrap.appendChild(g);
+    });
+    const label = document.createElement('div');
+    label.className='info';
+    const typeLabel = m.type==='kan' ? (m.concealed?'안깡':'명깡') : (MELD_TYPE_LABEL[m.type]||'확인 필요');
+    label.innerHTML = `<b>${typeLabel}</b>` + (m.autoGuess?' <span style="color:var(--text-faint)">(자동 추정)</span>':'');
+    const delBtn = document.createElement('button');
+    delBtn.className='btn btn-red btn-sm';
+    delBtn.textContent='삭제';
+    delBtn.addEventListener('click', ()=>{ state.melds.splice(idx,1); render(); });
+    row.appendChild(tilesWrap);
+    row.appendChild(label);
+    row.appendChild(delBtn);
+    wrap.appendChild(row);
+  });
+  document.getElementById('meldsCountLabel').textContent = state.melds.length>0 ? `(${state.melds.length}세트)` : '';
+}
+
 function render(){
   renderHand();
+  renderMelds();
 
   // 리치는 멘젠 전제 조건이라, 멘젠이 꺼지면 리치도 자동으로 꺼요
   if(!state.menzen && state.riichi){
@@ -1115,22 +1217,16 @@ function renderScore(){
     yakuEl.appendChild(row);
   });
 
-  if(res.yakuman){
-    const box = document.createElement('div');
-    box.className='score-total';
-    const isDealer = state.isDealer;
-    const pts = isDealer ? res.han/13*48000 : res.han/13*32000;
-    box.innerHTML = `<div class="pts">${Math.round(pts).toLocaleString()}점</div><div class="tier">역만</div>`;
-    scoreEl.appendChild(box);
-    return;
-  }
-
-  const fu = computeFu(state.hand, res, ctx);
-  const scoreInfo = scoreFromHanFu(res.han, fu, state.isDealer, ctx.tsumo);
+  // 역만도 fu 계산은 형식상만 거치고(점수엔 영향 없음), 이후 공통 경로로 인당 지불 내역까지 같이 보여줘요
+  const fu = res.yakuman ? 0 : computeFu(state.hand, res, ctx);
+  const scoreInfo = scoreFromHanFu(res.han, fu, state.isDealer, ctx.tsumo, state.playerCount, state.honba);
   const hanfu = document.createElement('div');
   hanfu.className='hanfu-line';
   const waitLabel = waitShapeLabel(res, ctx);
-  hanfu.textContent = `${res.han}판 ${fu}부` + (waitLabel ? ` · 대기: ${waitLabel}` : '');
+  let hanfuText = res.yakuman ? '역만' : `${res.han}판 ${fu}부`;
+  hanfuText += (waitLabel ? ` · 대기: ${waitLabel}` : '');
+  if(state.honba>0) hanfuText += ` · ${state.honba}본장`;
+  hanfu.textContent = hanfuText;
   scoreEl.appendChild(hanfu);
 
   const box = document.createElement('div');
@@ -1143,6 +1239,21 @@ function renderScore(){
   detail.textContent = scoreInfo.detail;
   scoreEl.appendChild(detail);
 
+  // 인당 지불 내역 (마작 인원 · 오야 여부 반영)
+  if(scoreInfo.payers && scoreInfo.payers.length>0){
+    const payBox = document.createElement('div');
+    payBox.style.marginTop='12px';
+    payBox.style.paddingTop='10px';
+    payBox.style.borderTop='1px solid var(--line-soft)';
+    scoreInfo.payers.forEach(p=>{
+      const row = document.createElement('div');
+      row.className='yaku-item';
+      row.innerHTML = `<div class="yaku-name">${p.label}</div><div class="yaku-han">${p.amount.toLocaleString()}점</div>`;
+      payBox.appendChild(row);
+    });
+    scoreEl.appendChild(payBox);
+  }
+
   if(ctx.winTileIdx==null){
     const note = document.createElement('div');
     note.className='warn-box';
@@ -1152,22 +1263,55 @@ function renderScore(){
 }
 
 /* ===================== 패 선택 모달 ===================== */
-let pickerMode = null; // 'edit' | 'add'
+let pickerMode = null; // 'edit' | 'add' | 'meldAdd'
 let pickerEditIdx = null;
+let meldTemp = [];
 
 function openPicker(mode, idx){
   pickerMode = mode; pickerEditIdx = idx;
-  document.getElementById('pickerTitle').textContent = mode==='add' ? '패 추가' : '패 수정';
+  const titles = { add:'패 추가', edit:'패 수정', meldAdd:'울음 세트에 넣을 패 선택' };
+  document.getElementById('pickerTitle').textContent = titles[mode] || '패 선택';
   document.getElementById('pickerRemove').style.display = mode==='edit' ? 'inline-flex' : 'none';
+  document.getElementById('meldPreviewWrap').style.display = mode==='meldAdd' ? 'block' : 'none';
+  if(mode==='meldAdd'){ meldTemp = []; renderMeldPreview(); }
   renderPickerGrid();
   document.getElementById('pickerOverlay').classList.add('show');
 }
-function closePicker(){ document.getElementById('pickerOverlay').classList.remove('show'); }
+function closePicker(){
+  document.getElementById('pickerOverlay').classList.remove('show');
+  ['meldConfirmChi','meldConfirmPon','meldConfirmKan','meldConfirmAnkan'].forEach(id=>{
+    document.getElementById(id).style.display='none';
+  });
+}
+
+// 손패 + 이미 등록된 멜드 + (멜드 추가 중이면) 임시 선택분까지 합쳐서 매수를 세요 (4장 초과 선택 방지)
+function allUsedCounts(){
+  const c = countsFromHand(state.hand);
+  state.melds.forEach(m=> m.tiles.forEach(t=>{ if(t!=='back') c[tileIndex(t)]++; }));
+  if(pickerMode==='meldAdd') meldTemp.forEach(t=>{ if(t!=='back') c[tileIndex(t)]++; });
+  return c;
+}
+
+function renderMeldPreview(){
+  const row = document.getElementById('meldPreviewRow');
+  row.innerHTML='';
+  meldTemp.forEach((code, i)=>{
+    row.appendChild(tileEl(code, { onClick: ()=>{ meldTemp.splice(i,1); renderMeldPreview(); renderPickerGrid(); } }));
+  });
+  const chiBtn = document.getElementById('meldConfirmChi');
+  const ponBtn = document.getElementById('meldConfirmPon');
+  const kanBtn = document.getElementById('meldConfirmKan');
+  const ankanBtn = document.getElementById('meldConfirmAnkan');
+  chiBtn.style.display = meldTemp.length===3 ? 'inline-flex' : 'none';
+  ponBtn.style.display = meldTemp.length===3 ? 'inline-flex' : 'none';
+  kanBtn.style.display = meldTemp.length===4 ? 'inline-flex' : 'none';
+  ankanBtn.style.display = meldTemp.length===4 ? 'inline-flex' : 'none';
+}
 
 function renderPickerGrid(){
   const body = document.getElementById('pickerBody');
   body.innerHTML='';
-  const counts = countsFromHand(state.hand);
+  const counts = allUsedCounts();
   const groups = [ ['만수','m',9], ['통수','p',9], ['삭수','s',9], ['자패','z',7] ];
   groups.forEach(([label,suit,n])=>{
     const lab = document.createElement('div'); lab.className='picker-suit-label'; lab.textContent=label;
@@ -1195,6 +1339,13 @@ function renderPickerGrid(){
 }
 
 function chooseTile(code){
+  if(pickerMode==='meldAdd'){
+    if(meldTemp.length>=4) return;
+    meldTemp.push(code);
+    renderMeldPreview();
+    renderPickerGrid();
+    return;
+  }
   if(pickerMode==='add'){
     if(state.hand.length>=14) return;
     state.hand.push(code);
@@ -1206,6 +1357,17 @@ function chooseTile(code){
   state.winTile = null;
   render();
 }
+
+function confirmMeld(type, concealed){
+  state.melds.push({ tiles:[...meldTemp], type, concealed });
+  closePicker();
+  render();
+}
+document.getElementById('meldConfirmChi').addEventListener('click', ()=>confirmMeld('chi', false));
+document.getElementById('meldConfirmPon').addEventListener('click', ()=>confirmMeld('pon', false));
+document.getElementById('meldConfirmKan').addEventListener('click', ()=>confirmMeld('kan', false));
+document.getElementById('meldConfirmAnkan').addEventListener('click', ()=>confirmMeld('kan', true));
+document.getElementById('btnAddMeld').addEventListener('click', ()=>openPicker('meldAdd', null));
 
 document.getElementById('pickerClose').addEventListener('click', closePicker);
 document.getElementById('pickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='pickerOverlay') closePicker(); });
@@ -1230,6 +1392,17 @@ document.getElementById('menzenSwitch').addEventListener('click', function(){
 document.getElementById('dealerSwitch').addEventListener('click', function(){
   state.isDealer = !state.isDealer;
   this.classList.toggle('on', state.isDealer);
+  render();
+});
+document.getElementById('playerCountSeg').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  state.playerCount = Number(btn.dataset.v);
+  [...document.getElementById('playerCountSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
+  render();
+});
+document.getElementById('honbaInput').addEventListener('input', (e)=>{
+  state.honba = Number(e.target.value)||0;
   render();
 });
 document.getElementById('roundWindSeg').addEventListener('click', (e)=>{
@@ -1414,8 +1587,78 @@ async function runDetection(file){
   console.log(`임계값(${MODEL_CONF_THRESHOLD}) 통과 박스: ${boxes.length}개`);
   const kept = nms(boxes);
   console.log('NMS 이후:', kept.map(b=>`${MODEL_CLASSES[b.cls]}(${b.score.toFixed(2)})`));
-  kept.sort((a,b)=>a.x1-b.x1);
-  return kept.map(b=>({ label: MODEL_CLASSES[b.cls], score: b.score }));
+  // 위치 정보(x1,y1,x2,y2)까지 유지해서 손패/울음구역 분리에 사용해요
+  return kept.map(b=>({ label: MODEL_CLASSES[b.cls], score: b.score, x1:b.x1, y1:b.y1, x2:b.x2, y2:b.y2 }));
+}
+
+/* ===================== 손패 / 울음구역 자동 분리 ===================== */
+// 한 장의 사진에 손패 + 울음구역(우하단)이 같이 나온 경우, 위치를 기준으로 둘을 나눠요.
+// 확실하지 않으면 전부 손패로 간주하고, 울음구역은 비워둬서 사용자가 수동으로 추가하게 해요.
+function splitHandAndMelds(dets){
+  if(dets.length===0) return { handDets:[], meldDets:[] };
+  const withCenter = dets.map(d=>({ ...d, cx:(d.x1+d.x2)/2, cy:(d.y1+d.y2)/2, h:(d.y2-d.y1) }));
+  const avgH = withCenter.reduce((a,d)=>a+d.h,0)/withCenter.length;
+  const sortedY = [...withCenter].sort((a,b)=>a.cy-b.cy);
+
+  let maxGap=0, splitIdx=-1;
+  for(let i=1;i<sortedY.length;i++){
+    const gap = sortedY[i].cy - sortedY[i-1].cy;
+    if(gap>maxGap){ maxGap=gap; splitIdx=i; }
+  }
+  // 뚜렷한 '행' 구분(패 높이의 80% 이상 간격)이 없으면 전부 손패로 처리
+  if(splitIdx===-1 || maxGap < avgH*0.8){
+    return { handDets: dets, meldDets: [] };
+  }
+  const upper = sortedY.slice(0, splitIdx);
+  const lower = sortedY.slice(splitIdx);
+  // 울음구역은 보통 손패보다 적은 매수(≤11장)예요. 아래쪽이 너무 크면 손패가 두 줄로 찍힌 것뿐일 수 있어 분리하지 않아요.
+  if(lower.length===0 || lower.length>11 || upper.length<2){
+    return { handDets: dets, meldDets: [] };
+  }
+  return { handDets: upper, meldDets: lower };
+}
+
+// X좌표 간격을 기준으로 울음구역 패들을 3~4장씩 세트로 묶어요
+function clusterMeldGroups(meldDets){
+  if(meldDets.length===0) return [];
+  const sorted = [...meldDets].sort((a,b)=>a.x1-b.x1);
+  const avgW = sorted.reduce((a,d)=>a+(d.x2-d.x1),0)/sorted.length;
+  const groups=[];
+  let current=[sorted[0]];
+  for(let i=1;i<sorted.length;i++){
+    const gap = sorted[i].x1 - current[current.length-1].x2;
+    if(gap > avgW*0.6){ groups.push(current); current=[sorted[i]]; }
+    else current.push(sorted[i]);
+  }
+  groups.push(current);
+  return groups;
+}
+
+// 자동 클러스터링 결과를 melds 데이터 구조({tiles, type, concealed})로 변환
+function detsToMeld(group){
+  const tiles = group.map(d=>detLabelToCode(d.label));
+  if(group.length===4){
+    const first = group[0].label, last = group[group.length-1].label;
+    const concealed = (first==='0b' && last==='0b');
+    return { tiles, type:'kan', concealed, autoGuess:true };
+  }
+  if(group.length===3){
+    const allSame = tiles.every(t=>t===tiles[0]);
+    return { tiles, type: allSame?'pon':'chi', concealed:false, autoGuess:true };
+  }
+  // 3장도 4장도 아니면 자동 판정이 애매해요 — 그대로 담아두고 사용자가 수동으로 고치게 해요
+  return { tiles, type:'unknown', concealed:false, autoGuess:true };
+}
+
+function detLabelToCode(label){
+  if(label==='0b') return 'back'; // 뒷면(식별불가) - 일반 패 코드가 아닌 특수 표시
+  if(label==='0m') return 'm5';
+  if(label==='0p') return 'p5';
+  if(label==='0s') return 's5';
+  return classLabelToCode(label);
+}
+function meldTileGlyph(code){
+  return code==='back' ? '🀫' : glyphOf(tileIndex(code));
 }
 
 /* ===================== 카메라 인식 ===================== */
@@ -1441,9 +1684,12 @@ async function handleImage(file){
     const detections = await runDetection(file);
     if(detections.length===0) throw new Error('패를 찾지 못했어요. 개발자 도구(F12) Console 탭에서 자세한 로그를 볼 수 있어요.');
 
+    const { handDets, meldDets } = splitHandAndMelds(detections);
+    console.log(`손패 후보 ${handDets.length}개, 울음구역 후보 ${meldDets.length}개`);
+
     let redFives = 0;
     const codes = [];
-    detections.slice(0,14).forEach(d=>{
+    handDets.slice(0,14).forEach(d=>{
       if(d.label==='0b') return; // 뒷면(식별 불가)은 건너뜀
       if(d.label==='0m'){ codes.push('m5'); redFives++; return; }
       if(d.label==='0p'){ codes.push('p5'); redFives++; return; }
@@ -1455,10 +1701,19 @@ async function handleImage(file){
     state.hand = codes;
     sortHand();
     state.winTile = null;
+
+    const meldGroups = clusterMeldGroups(meldDets);
+    state.melds = meldGroups.map(detsToMeld);
+
+    let note = '';
     if(redFives>0){
       state.dora = redFives;
-      errBox.innerHTML = `<div class="count-note">빨간 5(아카도라) ${redFives}장을 인식해서 도라 개수에 자동 반영했어요. 다른 도라가 더 있으면 위쪽 "도라 개수"에서 수정해주세요.</div>`;
+      note += `빨간 5(아카도라) ${redFives}장을 도라 개수에 자동 반영했어요. `;
     }
+    if(state.melds.length>0){
+      note += `울음구역으로 보이는 ${state.melds.length}세트를 자동으로 묶어봤어요 — 아래 "울음 구역"에서 꼭 확인하고 틀린 부분은 고쳐주세요.`;
+    }
+    if(note) errBox.innerHTML = `<div class="count-note">${note}</div>`;
     render();
   } catch(err){
     console.error(err);
