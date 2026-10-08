@@ -296,11 +296,24 @@
   <div class="card" id="meldsCard">
     <div class="card-title">울음 구역 (치·퐁·깡) <span class="n" id="meldsCountLabel"></span></div>
     <div id="meldsList"></div>
+
+    <div id="meldPoolWrap" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft);">
+      <div class="switch-sub" style="margin-bottom:6px;">인식됐지만 아직 안 묶인 패 (탭해서 선택 → 세트로 묶기)</div>
+      <div class="hand-row" id="meldPoolRow"></div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-sm" id="poolConfirmChi">치로 묶기</button>
+        <button class="btn btn-sm" id="poolConfirmPon">퐁으로 묶기</button>
+        <button class="btn btn-sm" id="poolConfirmKan">명깡으로 묶기</button>
+        <button class="btn btn-sm" id="poolConfirmAnkan">안깡으로 묶기</button>
+        <button class="btn btn-ghost btn-sm" id="poolDiscard">선택한 패 버리기(오탐지)</button>
+      </div>
+    </div>
+
     <div class="btn-row" style="margin-top:10px;">
       <button class="btn btn-ghost btn-sm" id="btnAddMeld">+ 세트 수동 추가</button>
     </div>
     <div class="count-note" style="margin-top:8px;">
-      <b>베타 기능</b> — 사진에서 자동으로 묶은 세트는 틀릴 수 있어요, 꼭 확인해주세요.
+      <b>베타 기능</b> — "어디에 울음패가 있는지"까지는 자동으로 찾지만, "몇 장씩 세트로 묶을지"는 직접 선택해주셔야 해요 (자동 묶기가 틀리는 경우가 있어서 더 안정적인 방식으로 바꿨어요).
       지금은 역·점수 계산에는 아직 반영되지 않고, 인식/정리 용도로만 쓰여요.
     </div>
   </div>
@@ -451,6 +464,7 @@ const state = {
   playerCount: 4,
   honba: 0,
   melds: [],          // [{tiles:[code,...], type:'chi'|'pon'|'kan'|'unknown', concealed:bool}]
+  meldPool: [],       // 울음구역에서 인식됐지만 아직 세트로 안 묶인 패 코드들
   situational: { ippatsu:false, doubleRiichi:false, haitei:false, houtei:false, rinshan:false, chankan:false, tenhou:false, chiihou:false }
 };
 const SITUATIONAL_YAKU = [
@@ -952,36 +966,95 @@ function renderHand(){
 }
 
 const MELD_TYPE_LABEL = { chi:'치', pon:'퐁', kan:'명깡', unknown:'확인 필요' };
+let poolSelected = []; // meldPool 안에서 현재 선택된 패의 인덱스들
+
+// 뒷면(back)은 특수 코드라 별도 처리하고, 나머지는 일반 타일 렌더러(수트 색상 포함)를 재사용해요
+function meldTileEl(code, opts){
+  opts = opts||{};
+  if(code==='back'){
+    const d = document.createElement('div');
+    d.className = 'tile small' + (opts.selected?' selected':'');
+    d.textContent = '🀫';
+    d.title = '뒷면(식별 불가)';
+    if(opts.onClick) d.addEventListener('click', opts.onClick);
+    return d;
+  }
+  return tileEl(code, { small:true, selected: opts.selected, onClick: opts.onClick });
+}
 
 function renderMelds(){
   const wrap = document.getElementById('meldsList');
   wrap.innerHTML='';
   state.melds.forEach((m, idx)=>{
     const row = document.createElement('div');
-    row.className='discard-pick'; // 기존 스타일(타일 줄 + 텍스트) 재사용
+    row.className='discard-pick';
     const tilesWrap = document.createElement('div');
     tilesWrap.className='hand-row';
     tilesWrap.style.flex='1';
-    m.tiles.forEach(code=>{
-      const g = document.createElement('div');
-      g.className='tile small';
-      g.textContent = meldTileGlyph(code);
-      tilesWrap.appendChild(g);
-    });
+    m.tiles.forEach(code=> tilesWrap.appendChild(meldTileEl(code)));
     const label = document.createElement('div');
     label.className='info';
     const typeLabel = m.type==='kan' ? (m.concealed?'안깡':'명깡') : (MELD_TYPE_LABEL[m.type]||'확인 필요');
-    label.innerHTML = `<b>${typeLabel}</b>` + (m.autoGuess?' <span style="color:var(--text-faint)">(자동 추정)</span>':'');
+    label.innerHTML = `<b>${typeLabel}</b>`;
     const delBtn = document.createElement('button');
     delBtn.className='btn btn-red btn-sm';
     delBtn.textContent='삭제';
-    delBtn.addEventListener('click', ()=>{ state.melds.splice(idx,1); render(); });
+    delBtn.addEventListener('click', ()=>{
+      // 삭제하면 이 세트의 패(뒷면 제외)를 다시 미분류 풀로 돌려놔서 다시 묶을 수 있게 해요
+      m.tiles.forEach(t=>{ if(t!=='back') state.meldPool.push(t); });
+      state.melds.splice(idx,1);
+      render();
+    });
     row.appendChild(tilesWrap);
     row.appendChild(label);
     row.appendChild(delBtn);
     wrap.appendChild(row);
   });
   document.getElementById('meldsCountLabel').textContent = state.melds.length>0 ? `(${state.melds.length}세트)` : '';
+  renderMeldPool();
+}
+
+function renderMeldPool(){
+  const wrap = document.getElementById('meldPoolWrap');
+  const row = document.getElementById('meldPoolRow');
+  if(state.meldPool.length===0){
+    wrap.style.display='none';
+    poolSelected = [];
+    return;
+  }
+  wrap.style.display='block';
+  row.innerHTML='';
+  state.meldPool.forEach((code, idx)=>{
+    row.appendChild(meldTileEl(code, {
+      selected: poolSelected.includes(idx),
+      onClick: ()=>{
+        const pos = poolSelected.indexOf(idx);
+        if(pos>=0) poolSelected.splice(pos,1); else poolSelected.push(idx);
+        renderMeldPool();
+      }
+    }));
+  });
+  const n = poolSelected.length;
+  const sel = poolSelected.map(i=>state.meldPool[i]);
+  // 안깡은 같은 패 4장인데 가운데 2장만 앞면이라서, 같은 패 2장만 골라도 안깡으로 묶을 수 있게 해요
+  const twoSame = n===2 && sel[0]===sel[1] && sel[0]!=='back';
+  document.getElementById('poolConfirmChi').disabled = n!==3;
+  document.getElementById('poolConfirmPon').disabled = n!==3;
+  document.getElementById('poolConfirmKan').disabled = n!==4;
+  document.getElementById('poolConfirmAnkan').disabled = !(n===4 || twoSame);
+  document.getElementById('poolDiscard').disabled = n===0;
+}
+
+function confirmPoolMeld(type, concealed){
+  const idxs = [...poolSelected].sort((a,b)=>a-b);
+  let tiles = idxs.map(i=>state.meldPool[i]);
+  if(type==='kan' && concealed && tiles.length===2){
+    tiles = ['back', tiles[0], tiles[1], 'back']; // 안깡 표시 형태 (양 끝 뒷면)
+  }
+  state.melds.push({ tiles, type, concealed });
+  [...idxs].reverse().forEach(i=> state.meldPool.splice(i,1)); // 뒤에서부터 지워야 인덱스가 안 꼬여요
+  poolSelected = [];
+  render();
 }
 
 function render(){
@@ -1288,6 +1361,7 @@ function closePicker(){
 function allUsedCounts(){
   const c = countsFromHand(state.hand);
   state.melds.forEach(m=> m.tiles.forEach(t=>{ if(t!=='back') c[tileIndex(t)]++; }));
+  state.meldPool.forEach(t=>{ if(t!=='back') c[tileIndex(t)]++; });
   if(pickerMode==='meldAdd') meldTemp.forEach(t=>{ if(t!=='back') c[tileIndex(t)]++; });
   return c;
 }
@@ -1368,6 +1442,17 @@ document.getElementById('meldConfirmPon').addEventListener('click', ()=>confirmM
 document.getElementById('meldConfirmKan').addEventListener('click', ()=>confirmMeld('kan', false));
 document.getElementById('meldConfirmAnkan').addEventListener('click', ()=>confirmMeld('kan', true));
 document.getElementById('btnAddMeld').addEventListener('click', ()=>openPicker('meldAdd', null));
+
+document.getElementById('poolConfirmChi').addEventListener('click', ()=>confirmPoolMeld('chi', false));
+document.getElementById('poolConfirmPon').addEventListener('click', ()=>confirmPoolMeld('pon', false));
+document.getElementById('poolConfirmKan').addEventListener('click', ()=>confirmPoolMeld('kan', false));
+document.getElementById('poolConfirmAnkan').addEventListener('click', ()=>confirmPoolMeld('kan', true));
+document.getElementById('poolDiscard').addEventListener('click', ()=>{
+  const idxs = [...poolSelected].sort((a,b)=>a-b);
+  [...idxs].reverse().forEach(i=> state.meldPool.splice(i,1));
+  poolSelected = [];
+  render();
+});
 
 document.getElementById('pickerClose').addEventListener('click', closePicker);
 document.getElementById('pickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='pickerOverlay') closePicker(); });
@@ -1728,16 +1813,25 @@ async function handleImage(file){
     sortHand();
     state.winTile = null;
 
-    const meldGroups = clusterMeldGroups(meldDets);
-    state.melds = meldGroups.map(detsToMeld);
+    // 울음구역으로 분류된 패는 자동으로 세트까지 묶지 않고, "미분류 풀"에 넣어서
+    // 사용자가 직접 선택해 묶도록 해요 (자동 그룹핑이 틀리는 경우가 많았어요)
+    state.melds = [];
+    poolSelected = [];
+    let meldRedFives = 0;
+    state.meldPool = [...meldDets].sort((a,b)=>a.x1-b.x1).map(d=>{
+      if(d.label==='0m'){ meldRedFives++; return 'm5'; }
+      if(d.label==='0p'){ meldRedFives++; return 'p5'; }
+      if(d.label==='0s'){ meldRedFives++; return 's5'; }
+      return detLabelToCode(d.label);
+    });
 
     let note = '';
-    if(redFives>0){
-      state.dora = redFives;
-      note += `빨간 5(아카도라) ${redFives}장을 도라 개수에 자동 반영했어요. `;
+    if(redFives+meldRedFives>0){
+      state.dora = redFives+meldRedFives;
+      note += `빨간 5(아카도라) ${redFives+meldRedFives}장을 도라 개수에 자동 반영했어요. `;
     }
-    if(state.melds.length>0){
-      note += `울음구역으로 보이는 ${state.melds.length}세트를 자동으로 묶어봤어요 — 아래 "울음 구역"에서 꼭 확인하고 틀린 부분은 고쳐주세요.`;
+    if(state.meldPool.length>0){
+      note += `울음구역으로 보이는 패 ${state.meldPool.length}장을 찾았어요 — 아래 "울음 구역"에서 직접 3~4장씩 선택해서 세트로 묶어주세요.`;
     }
     if(note) errBox.innerHTML = `<div class="count-note">${note}</div>`;
     render();
