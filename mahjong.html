@@ -93,6 +93,7 @@
     cursor:pointer; user-select:none; position:relative; flex-shrink:0;
   }
   .tile.small{ width:28px; height:38px; font-size:19px; border-radius:4px; }
+  .tile.meld{ width:44px; height:60px; min-width:44px; font-size:34px; border-radius:6px; }
   .tile.suit-p{ color: var(--ink-blue); }
   .tile.suit-s{ color: var(--ink-green); }
   .tile.suit-z-dragon{ color: var(--red); }
@@ -311,9 +312,11 @@
 
     <div class="btn-row" style="margin-top:10px;">
       <button class="btn btn-ghost btn-sm" id="btnAddMeld">+ 세트 수동 추가</button>
+      <button class="btn btn-ghost btn-sm" id="btnClearMelds">울음 전체 비우기</button>
     </div>
     <div class="count-note" style="margin-top:8px;">
-      <b>베타 기능</b> — "어디에 울음패가 있는지"까지는 자동으로 찾지만, "몇 장씩 세트로 묶을지"는 직접 선택해주셔야 해요 (자동 묶기가 틀리는 경우가 있어서 더 안정적인 방식으로 바꿨어요).
+      <b>베타 기능</b> — "어디에 울음패가 있는지"까지는 자동으로 찾지만, "몇 장씩 세트로 묶을지"는 직접 선택해주셔야 해요.
+      한 번 확정한 세트는 사진을 다시 찍어도 유지되고, 새로 보이는 패만 미분류에 올라와요. 새 판이 시작되면 "울음 전체 비우기"를 눌러주세요.
       지금은 역·점수 계산에는 아직 반영되지 않고, 인식/정리 용도로만 쓰여요.
     </div>
   </div>
@@ -940,7 +943,7 @@ function tileEl(code, opts){
   opts = opts||{};
   const idx = tileIndex(code);
   const div = document.createElement('div');
-  div.className = 'tile' + (opts.small?' small':'') + (opts.large?' large':'') + (suitOf(idx)==='p'?' suit-p':'') + (suitOf(idx)==='s'?' suit-s':'') + (isHonor(idx)&&idx>=31?' suit-z-dragon':'');
+  div.className = 'tile' + (opts.small?' small':'') + (opts.large?' large':'') + (opts.meld?' meld':'') + (suitOf(idx)==='p'?' suit-p':'') + (suitOf(idx)==='s'?' suit-s':'') + (isHonor(idx)&&idx>=31?' suit-z-dragon':'');
   div.textContent = glyphOf(idx);
   div.title = tileKor(idx);
   if(opts.onClick) div.addEventListener('click', opts.onClick);
@@ -973,13 +976,41 @@ function meldTileEl(code, opts){
   opts = opts||{};
   if(code==='back'){
     const d = document.createElement('div');
-    d.className = 'tile small' + (opts.selected?' selected':'');
+    d.className = 'tile meld' + (opts.selected?' selected':'');
     d.textContent = '🀫';
     d.title = '뒷면(식별 불가)';
     if(opts.onClick) d.addEventListener('click', opts.onClick);
     return d;
   }
-  return tileEl(code, { small:true, selected: opts.selected, onClick: opts.onClick });
+  return tileEl(code, { meld:true, selected: opts.selected, onClick: opts.onClick });
+}
+
+// 새 사진에서 찾은 울음구역 패(좌→우 순서의 코드 배열)를 이미 확정한 세트와 패 종류별로 대조해요.
+// 확정 세트는 그대로 두고, 대응되지 않은 패만 미분류 풀로 돌려줘요.
+function reconcileMeldPool(detectedCodes, melds){
+  const consume = {};
+  melds.forEach(m=> m.tiles.forEach(t=>{ consume[t]=(consume[t]||0)+1; }));
+  const leftover = [];
+  let matched = 0;
+  detectedCodes.forEach(code=>{
+    if(consume[code]>0){ consume[code]--; matched++; }
+    else leftover.push(code);
+  });
+  return { leftover, matched };
+}
+
+// 퐁 + 같은 패 1장(풀에 남은 것) → 명깡(가칸)으로 합치기
+function upgradePonToKan(meldIdx){
+  const m = state.melds[meldIdx];
+  if(!m || m.type!=='pon') return false;
+  const poolIdx = state.meldPool.indexOf(m.tiles[0]);
+  if(poolIdx<0) return false;
+  state.meldPool.splice(poolIdx,1);
+  m.tiles.push(m.tiles[0]);
+  m.type='kan';
+  m.concealed=false;
+  poolSelected = [];
+  return true;
 }
 
 function renderMelds(){
@@ -988,9 +1019,10 @@ function renderMelds(){
   state.melds.forEach((m, idx)=>{
     const row = document.createElement('div');
     row.className='discard-pick';
+    row.style.flexWrap='wrap';
     const tilesWrap = document.createElement('div');
     tilesWrap.className='hand-row';
-    tilesWrap.style.flex='1';
+    tilesWrap.style.flex='1 1 auto';
     m.tiles.forEach(code=> tilesWrap.appendChild(meldTileEl(code)));
     const label = document.createElement('div');
     label.className='info';
@@ -1008,6 +1040,16 @@ function renderMelds(){
     row.appendChild(tilesWrap);
     row.appendChild(label);
     row.appendChild(delBtn);
+    if(m.type==='pon' && state.meldPool.indexOf(m.tiles[0])>=0){
+      const kakanRow = document.createElement('div');
+      kakanRow.style.flexBasis='100%';
+      const kb = document.createElement('button');
+      kb.className='btn btn-sm';
+      kb.textContent='같은 패가 1장 더 있어요 → 명깡으로 합치기';
+      kb.addEventListener('click', ()=>{ if(upgradePonToKan(idx)) render(); });
+      kakanRow.appendChild(kb);
+      row.appendChild(kakanRow);
+    }
     wrap.appendChild(row);
   });
   document.getElementById('meldsCountLabel').textContent = state.melds.length>0 ? `(${state.melds.length}세트)` : '';
@@ -1442,6 +1484,14 @@ document.getElementById('meldConfirmPon').addEventListener('click', ()=>confirmM
 document.getElementById('meldConfirmKan').addEventListener('click', ()=>confirmMeld('kan', false));
 document.getElementById('meldConfirmAnkan').addEventListener('click', ()=>confirmMeld('kan', true));
 document.getElementById('btnAddMeld').addEventListener('click', ()=>openPicker('meldAdd', null));
+document.getElementById('btnClearMelds').addEventListener('click', ()=>{
+  if(state.melds.length===0 && state.meldPool.length===0) return;
+  if(!confirm('확정한 울음 세트와 미분류 패를 모두 지울까요?')) return;
+  state.melds = [];
+  state.meldPool = [];
+  poolSelected = [];
+  render();
+});
 
 document.getElementById('poolConfirmChi').addEventListener('click', ()=>confirmPoolMeld('chi', false));
 document.getElementById('poolConfirmPon').addEventListener('click', ()=>confirmPoolMeld('pon', false));
@@ -1815,23 +1865,35 @@ async function handleImage(file){
 
     // 울음구역으로 분류된 패는 자동으로 세트까지 묶지 않고, "미분류 풀"에 넣어서
     // 사용자가 직접 선택해 묶도록 해요 (자동 그룹핑이 틀리는 경우가 많았어요)
-    state.melds = [];
+    // 이미 확정한 세트는 지우지 않고, 새 사진에서 찾은 패를 패 종류별로 대조해서
+    // 대응되지 않는 패만 미분류 풀에 올려요 (울음패는 한 판 안에서 바뀌지 않고 늘어나기만 하니까요)
     poolSelected = [];
     let meldRedFives = 0;
-    state.meldPool = [...meldDets].sort((a,b)=>a.x1-b.x1).map(d=>{
+    const detectedMeldCodes = [...meldDets].sort((a,b)=>a.x1-b.x1).map(d=>{
       if(d.label==='0m'){ meldRedFives++; return 'm5'; }
       if(d.label==='0p'){ meldRedFives++; return 'p5'; }
       if(d.label==='0s'){ meldRedFives++; return 's5'; }
       return detLabelToCode(d.label);
     });
+    const { leftover, matched } = reconcileMeldPool(detectedMeldCodes, state.melds);
+    state.meldPool = leftover;
 
     let note = '';
     if(redFives+meldRedFives>0){
       state.dora = redFives+meldRedFives;
       note += `빨간 5(아카도라) ${redFives+meldRedFives}장을 도라 개수에 자동 반영했어요. `;
     }
+    if(state.melds.length>0){
+      if(detectedMeldCodes.length===0){
+        note += `이번 사진에서는 울음구역을 못 찾았어요. 확정해둔 세트 ${state.melds.length}개는 그대로 유지했어요. `;
+      } else if(matched===0){
+        note += `확정해둔 울음 세트와 겹치는 패가 하나도 없어요. 새 판이면 "울음 전체 비우기"를 눌러주세요. `;
+      } else {
+        note += `확정해둔 울음 세트 ${state.melds.length}개는 유지했어요 (이번 사진에서 ${matched}장 확인). `;
+      }
+    }
     if(state.meldPool.length>0){
-      note += `울음구역으로 보이는 패 ${state.meldPool.length}장을 찾았어요 — 아래 "울음 구역"에서 직접 3~4장씩 선택해서 세트로 묶어주세요.`;
+      note += `새로 찾은 미분류 패 ${state.meldPool.length}장은 아래 "울음 구역"에서 묶어주세요.`;
     }
     if(note) errBox.innerHTML = `<div class="count-note">${note}</div>`;
     render();
