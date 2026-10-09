@@ -256,7 +256,7 @@
         <div class="switch-row" style="margin-top:14px;">
           <div>
             <div class="switch-label">멘젠 상태</div>
-            <div class="switch-sub">치·퐁·명깡으로 울었으면 꺼주세요</div>
+            <div class="switch-sub" id="menzenSub">치·퐁·명깡으로 울었으면 꺼주세요</div>
           </div>
           <div class="switch on" id="menzenSwitch"><div class="knob"></div></div>
         </div>
@@ -291,7 +291,7 @@
   <div class="card">
     <div class="card-title">현재 손패 <span class="n" id="handCountLabel"></span></div>
     <div class="hand-row" id="handRow"></div>
-    <div class="count-note">패를 탭하면 수정하거나 지울 수 있어요. 13장이면 대기 상태, 14장이면 버릴 패를 계산해요.</div>
+    <div class="count-note" id="handNote">패를 탭하면 수정하거나 지울 수 있어요. 13장이면 대기 상태, 14장이면 버릴 패를 계산해요.</div>
   </div>
 
   <div class="card" id="meldsCard">
@@ -306,6 +306,7 @@
         <button class="btn btn-sm" id="poolConfirmPon">퐁으로 묶기</button>
         <button class="btn btn-sm" id="poolConfirmKan">명깡으로 묶기</button>
         <button class="btn btn-sm" id="poolConfirmAnkan">안깡으로 묶기</button>
+        <button class="btn btn-ghost btn-sm" id="poolAutoGroup">미분류 패 자동 묶기</button>
         <button class="btn btn-ghost btn-sm" id="poolDiscard">선택한 패 버리기(오탐지)</button>
       </div>
     </div>
@@ -317,7 +318,7 @@
     <div class="count-note" style="margin-top:8px;">
       <b>베타 기능</b> — "어디에 울음패가 있는지"까지는 자동으로 찾지만, "몇 장씩 세트로 묶을지"는 직접 선택해주셔야 해요.
       한 번 확정한 세트는 사진을 다시 찍어도 유지되고, 새로 보이는 패만 미분류에 올라와요. 새 판이 시작되면 "울음 전체 비우기"를 눌러주세요.
-      지금은 역·점수 계산에는 아직 반영되지 않고, 인식/정리 용도로만 쓰여요.
+      확정한 세트는 텐파이·대기패·역·부수 계산에 그대로 반영돼요. 이때 손패는 세트 수만큼 줄어든 장수(세트당 3장)로 계산해요.
     </div>
   </div>
 
@@ -398,6 +399,7 @@
       <button class="btn btn-sm" id="meldConfirmPon" style="display:none;">퐁으로 묶기 (3장)</button>
       <button class="btn btn-sm" id="meldConfirmKan" style="display:none;">명깡으로 묶기 (4장)</button>
       <button class="btn btn-sm" id="meldConfirmAnkan" style="display:none;">안깡으로 묶기 (4장)</button>
+      <button class="btn btn-sm" id="meldConfirmKakan" style="display:none;">기존 퐁에 합쳐 명깡으로 (가칸)</button>
     </div>
   </div>
 </div>
@@ -489,7 +491,70 @@ function countsFromHand(hand){
   return c;
 }
 
-function standardShanten(counts){
+/* ===================== 울음 세트(치·퐁·깡) → 계산 엔진 변환 ===================== */
+function meldIsOpen(m){ return !(m.type==='kan' && m.concealed); }
+
+// 화면용 {tiles,type,concealed} → 엔진용 {type:'run'|'triplet', tile, fixed, open, kan, concealed}
+// 규칙에 맞지 않으면 null (치는 같은 무늬 연속 3장, 퐁은 같은 패 3장, 깡은 같은 패 4장)
+function toEngineMeld(m){
+  const real = m.tiles.filter(t=>t!=='back');
+  if(real.length===0) return null;
+  const idxs = real.map(tileIndex);
+  if(m.type==='chi'){
+    if(m.tiles.length!==3 || real.length!==3) return null;
+    const s = idxs.slice().sort((a,b)=>a-b);
+    if(s[0]>=27) return null;
+    if(Math.floor(s[0]/9)!==Math.floor(s[2]/9)) return null;
+    if(s[1]!==s[0]+1 || s[2]!==s[1]+1) return null;
+    return { type:'run', tile:s[0], fixed:true, open:true, kan:false, concealed:false };
+  }
+  if(m.type==='pon'){
+    if(m.tiles.length!==3 || real.length!==3 || !idxs.every(i=>i===idxs[0])) return null;
+    return { type:'triplet', tile:idxs[0], fixed:true, open:true, kan:false, concealed:false };
+  }
+  if(m.type==='kan'){
+    if(m.tiles.length!==4 || !idxs.every(i=>i===idxs[0])) return null;
+    if(!m.concealed && real.length!==4) return null; // 명깡은 4장 모두 앞면이어야 해요
+    return { type:'triplet', tile:idxs[0], fixed:true, open:!m.concealed, kan:true, concealed:!!m.concealed };
+  }
+  return null;
+}
+function validEngineMelds(){ return state.melds.map(toEngineMeld).filter(Boolean); }
+function meldsAllValid(){ return state.melds.length<=4 && state.melds.every(m=>toEngineMeld(m)!==null); }
+// 멘젠 = 사용자가 켠 상태이면서, 열린 울음(치·퐁·명깡)이 없을 때 (안깡은 멘젠 유지)
+function isMenzen(){ return state.menzen && !state.melds.some(meldIsOpen); }
+// 울음 세트가 k개면 손패는 그만큼(세트당 3장) 줄어요. 대기 상태 장수 = 13-3k, 뽑은 뒤 = 14-3k
+function handBase(){ return 13 - 3*Math.min(state.melds.length,4); }
+function handMax(){ return handBase()+1; }
+// 종류별 패 수 — 탄야오/일색 같은 "종류" 분석용 (울음 세트를 3장씩으로 펼침)
+function meldTypeCounts(engMelds){
+  const c = emptyCounts();
+  engMelds.forEach(m=>{
+    if(m.type==='run'){ c[m.tile]++; c[m.tile+1]++; c[m.tile+2]++; }
+    else c[m.tile]+=3;
+  });
+  return c;
+}
+function meldExpandCodes(engMelds){
+  const out=[];
+  engMelds.forEach(m=>{
+    if(m.type==='run') [0,1,2].forEach(d=>out.push(indexToCode(m.tile+d)));
+    else [0,1,2].forEach(()=>out.push(indexToCode(m.tile)));
+  });
+  return out;
+}
+// 이미 눈에 보이는(소진된) 패 수 — 대기패 잔여 매수 계산용. 깡은 4장 모두 소진
+function meldVisibleCounts(){
+  const c = emptyCounts();
+  validEngineMelds().forEach(m=>{
+    if(m.type==='run'){ c[m.tile]++; c[m.tile+1]++; c[m.tile+2]++; }
+    else c[m.tile] += m.kan ? 4 : 3;
+  });
+  return c;
+}
+
+function standardShanten(counts, fixedMelds){
+  fixedMelds = fixedMelds||0;
   const c = counts.slice();
   let best = 8;
   function finalize(melds, pairs, partials){
@@ -513,7 +578,7 @@ function standardShanten(counts){
     if(i<27 && i%9<=6 && c[i+2]>0){ c[i]--;c[i+2]--; rec(i,melds,pairs,partials+1); c[i]++;c[i+2]++; }
     rec(i+1,melds,pairs,partials);
   }
-  rec(0,0,0,0);
+  rec(0,fixedMelds,0,0); // 이미 확정된 울음 세트는 완성된 멘츠로 시작해요
   return best;
 }
 function chiitoiShanten(counts){
@@ -526,28 +591,35 @@ function kokushiShanten(counts){
   TERMINALS_HONORS.forEach(i=>{ if(counts[i]>0) kinds++; if(counts[i]>=2) hasPair=true; });
   return 13-kinds-(hasPair?1:0);
 }
-function overallShanten(counts){
-  return Math.min(standardShanten(counts), chiitoiShanten(counts), kokushiShanten(counts));
+function overallShanten(counts, fixedMelds){
+  fixedMelds = fixedMelds||0;
+  const std = standardShanten(counts, fixedMelds);
+  if(fixedMelds>0) return std; // 울음이 있으면 치토이츠/국사무쌍은 불가능해요
+  return Math.min(std, chiitoiShanten(counts), kokushiShanten(counts));
 }
 
-function waitingTiles(counts13){
+// extraCounts: 울음 세트로 이미 소진된 패 수(종류별) — 대기패 잔여 매수 계산에 써요
+function waitingTiles(counts13, fixedMelds, extraCounts){
   const waits=[];
   for(let t=0;t<34;t++){
-    if(counts13[t]>=4) continue;
+    const used = counts13[t] + (extraCounts ? extraCounts[t] : 0);
+    if(used>=4) continue;
     counts13[t]++;
-    if(overallShanten(counts13)===-1) waits.push(t);
+    if(overallShanten(counts13, fixedMelds)===-1) waits.push(t);
     counts13[t]--;
   }
   return waits;
 }
 
 /* ===================== 완성패 분해 & 역 판정 ===================== */
-function findDecomposition(counts){
+// need: 손패에서 찾아야 하는 멘츠 수 (울음 세트가 k개면 4-k)
+function findDecomposition(counts, need){
+  need = (need===undefined) ? 4 : need;
   const c = counts.slice();
   let result = null;
   function rec(i, melds, pair){
     if(result) return;
-    if(i===34){ if(melds.length===4 && pair) result = { melds: melds.slice(), pair }; return; }
+    if(i===34){ if(melds.length===need && pair) result = { melds: melds.slice(), pair }; return; }
     if(c[i]===0){ rec(i+1,melds,pair); return; }
     if(c[i]>=3){
       c[i]-=3; melds.push({type:'triplet', tile:i}); rec(i,melds,pair); melds.pop(); c[i]+=3;
@@ -583,14 +655,19 @@ function isKokushi(counts){
 }
 
 function computeYaku(hand, ctx){
-  const counts = countsFromHand(hand);
+  const counts = countsFromHand(hand);   // 손패(멘젠 부분)만의 카운트
+  const fixed = ctx.melds || [];          // 확정된 울음 세트(엔진 형식)
+  // 종류 분석(탄야오·일색·역만 등)은 울음 세트의 패까지 합쳐서 봐요
+  const fullCounts = counts.slice();
+  meldTypeCounts(fixed).forEach((v,i)=>{ fullCounts[i]+=v; });
+  const allCodes = [...hand, ...meldExpandCodes(fixed)];
   const list = [];
 
   // 천화/지화는 사진만으로 알 수 없어 사용자가 직접 토글해요
   if(ctx.situational && ctx.situational.tenhou) list.push({name:'천화', han:13, yakuman:true});
   else if(ctx.situational && ctx.situational.chiihou) list.push({name:'지화', han:13, yakuman:true});
 
-  if(isKokushi(counts)){
+  if(fixed.length===0 && isKokushi(counts)){
     list.push({name:'국사무쌍', han:13, yakuman:true});
     const han = list.reduce((a,y)=>a+y.han,0);
     return { list, han, yakuman:true, decomposition:null, chiitoi:false };
@@ -599,20 +676,21 @@ function computeYaku(hand, ctx){
   // 손패가 "표준형(4멘츠+1페어)"과 "치토이츠(7쌍)"로 동시에 해석 가능한 경우가 있어요.
   // (예: 1123456789p 패턴처럼 량페코 모양이 치토이츠 모양이기도 한 경우)
   // 이럴 땐 더 높은 점수가 나오는 해석을 채택하는 게 마작 기본 규칙이에요.
-  const chiitoiPossible = isChiitoi(counts);
-  const decomposition = findDecomposition(counts);
+  const chiitoiPossible = fixed.length===0 && isChiitoi(counts);
+  const found = findDecomposition(counts, 4 - fixed.length);
+  const decomposition = found ? { melds: [...fixed, ...found.melds], pair: found.pair } : null;
   if(!chiitoiPossible && !decomposition){
     return { list: [], han:0, yakuman:false, decomposition:null, chiitoi:false, invalid:true };
   }
 
   const suitsUsed = new Set();
   let honorTileCount = 0;
-  for(let i=0;i<27;i++){ if(counts[i]>0) suitsUsed.add(Math.floor(i/9)); }
-  for(let i=27;i<34;i++){ if(counts[i]>0) honorTileCount += counts[i]; }
+  for(let i=0;i<27;i++){ if(fullCounts[i]>0) suitsUsed.add(Math.floor(i/9)); }
+  for(let i=27;i<34;i++){ if(fullCounts[i]>0) honorTileCount += fullCounts[i]; }
   const chinitsu = suitsUsed.size===1 && honorTileCount===0;
   const honitsu = suitsUsed.size===1 && honorTileCount>0;
-  const allSimple = TERMINALS_HONORS.every(i=>counts[i]===0);
-  const allTermHonorHand = hand.every(code=>isTerminalOrHonor(tileIndex(code)));
+  const allSimple = TERMINALS_HONORS.every(i=>fullCounts[i]===0);
+  const allTermHonorHand = allCodes.every(code=>isTerminalOrHonor(tileIndex(code)));
 
   // 공통 역: 손패 구조와 무관하게 똑같이 적용되는 것들
   const commonList = [];
@@ -636,12 +714,12 @@ function computeYaku(hand, ctx){
     const allTriplets = melds.every(m=>m.type==='triplet');
 
     // 역만 체크
-    const allHonor = counts.slice(0,27).every(v=>v===0);
+    const allHonor = fullCounts.slice(0,27).every(v=>v===0);
     const allTerminal = melds.every(m=> m.type==='triplet' && isTerminal(m.tile)) && isTerminal(pair.tile);
     const dragonTriplets = melds.filter(m=>m.type==='triplet' && m.tile>=31).length;
     const windTriplets = melds.filter(m=>m.type==='triplet' && m.tile>=27 && m.tile<31).length;
     const greenSet = new Set([18+1,18+2,18+3,18+5,18+7,32]);
-    const allGreen = hand.every(code=>greenSet.has(tileIndex(code)));
+    const allGreen = allCodes.every(code=>greenSet.has(tileIndex(code)));
 
     if(allHonor) sList.push({name:'자일색', han:13, yakuman:true});
     if(allTerminal) sList.push({name:'청노두', han:13, yakuman:true});
@@ -651,7 +729,7 @@ function computeYaku(hand, ctx){
     if(allTriplets && ctx.closed) sList.push({name:'사암각', han:13, yakuman:true});
     if(allGreen) sList.push({name:'녹일색', han:13, yakuman:true});
     if(ctx.kanCount===4) sList.push({name:'사깡즈', han:13, yakuman:true});
-    if(chinitsu && ctx.closed){
+    if(chinitsu && ctx.closed && fixed.length===0){
       const suitIdx = [...suitsUsed][0];
       const base = suitIdx*9;
       const required = [3,1,1,1,1,1,1,1,3];
@@ -704,8 +782,9 @@ function computeYaku(hand, ctx){
 
       if(allTermHonorHand) sList.push({name:'혼노두(혼전두)', han:2});
 
-      const tripletCount = melds.filter(m=>m.type==='triplet').length;
-      if(tripletCount===3) sList.push({name:'삼암각', han:2});
+      // 삼암각: 손패에서 나온 삼각 + 안깡만 "암각"이에요 (퐁·명깡은 제외)
+      const concealedTriplets = melds.filter(m=>m.type==='triplet' && (!m.fixed || m.concealed)).length;
+      if(concealedTriplets===3) sList.push({name:'삼암각', han:2});
 
       for(let n=0;n<9;n++){
         const hasM = melds.some(m=>m.type==='triplet' && m.tile===n);
@@ -773,19 +852,27 @@ function computeFu(hand, res, ctx){
   if(res.chiitoi) return 25;
   if(!res.decomposition) return 20;
   const { melds, pair } = res.decomposition;
+  const handMelds = melds.filter(m=>!m.fixed); // 대기 모양은 손패에서 나온 멘츠로만 판단해요
   let fu = 20;
   if(ctx.closed && ctx.method==='ron') fu += 10;
   const isPinfu = res.list.some(y=>y.name==='핀후');
   if(ctx.method==='tsumo' && !isPinfu) fu += 2;
 
   melds.forEach(m=>{
-    if(m.type==='triplet'){
+    if(m.type!=='triplet') return;
+    if(m.fixed){
+      // 울음 세트: 퐁 2/4부, 안각(안깡) ×2, 깡 ×4 → 명깡 8/16, 안깡 16/32 (숫자패/요구패·자패)
+      let v = isTerminalOrHonor(m.tile) ? 4 : 2;
+      if(!m.open) v *= 2;
+      if(m.kan) v *= 4;
+      fu += v;
+    } else {
       let concealed = true;
-      if(ctx.winTileIdx===m.tile && ctx.method==='ron') concealed = false; // 샹퐁 론
+      if(ctx.winTileIdx===m.tile && ctx.method==='ron') concealed = false; // 샤보 론
       fu += tripletFuValue(m.tile, concealed);
     }
   });
-  if(pair.tile>=31){
+  if(pair.tile>=27){ // 삼원패/자풍/장풍 머리 (기존에는 삼원패만 걸려서 바람 머리가 빠졌어요)
     const isDragon = pair.tile>=31;
     const isSeatWind = pair.tile>=27 && pair.tile<31 && (pair.tile-27+1)===ctx.seatWind;
     const isRoundWind = pair.tile>=27 && pair.tile<31 && (pair.tile-27+1)===ctx.roundWind;
@@ -797,10 +884,10 @@ function computeFu(hand, res, ctx){
   if(ctx.winTileIdx!=null){
     if(ctx.winTileIdx===pair.tile){
       fu += 2; // 단기
-    } else if(melds.some(m=>m.type==='triplet' && m.tile===ctx.winTileIdx)){
+    } else if(handMelds.some(m=>m.type==='triplet' && m.tile===ctx.winTileIdx)){
       // 샤보 대기는 추가 부수 없음(트리플렛 자체의 멘젠/퐁 여부로 이미 반영됨)
     } else {
-      const m = melds.find(mm=> mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
+      const m = handMelds.find(mm=> mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
       if(m){
         const local = ctx.winTileIdx-m.tile;
         if(local===1) fu+=2; // 간짱
@@ -809,12 +896,14 @@ function computeFu(hand, res, ctx){
       }
     }
   }
+  if(!ctx.closed && fu===20) fu = 30; // 울고 부수 가산이 전혀 없는 론은 30부로 계산해요 (오픈 핑후형)
   return Math.ceil(fu/10)*10;
 }
 
 function waitShapeLabel(res, ctx){
   if(res.chiitoi || !res.decomposition || ctx.winTileIdx==null) return null;
-  const { melds, pair } = res.decomposition;
+  const { pair } = res.decomposition;
+  const melds = res.decomposition.melds.filter(m=>!m.fixed);
   if(ctx.winTileIdx===pair.tile) return '단기';
   if(melds.some(m=>m.type==='triplet' && m.tile===ctx.winTileIdx)) return '샤보';
   const m = melds.find(mm=>mm.type==='run' && (ctx.winTileIdx-mm.tile)>=0 && (ctx.winTileIdx-mm.tile)<=2);
@@ -897,25 +986,41 @@ function scoreFromHanFu(han, fu, isDealer, tsumo, playerCount, honba){
 }
 
 /* ===================== 후보 역 휴리스틱 ===================== */
-function candidateYaku(counts, handLen){
+function candidateYaku(handCounts, handLen){
   if(handLen===0) return [];
   const list=[];
+  // 울음 세트의 패도 포함해서(탄야오·일색 등) 판단해요
+  const em = validEngineMelds();
+  const counts = handCounts.slice();
+  meldTypeCounts(em).forEach((v,i)=>{ counts[i]+=v; });
+
+  // 울음 세트로 이미 확정된 역패
+  em.filter(m=>m.type==='triplet' && m.tile>=27).forEach(m=>{
+    if(m.tile>=31){
+      list.push({name:`역패(${HONOR_NAMES[m.tile-27]}) 확정`, desc:'울음 세트로 이미 완성됐어요'});
+    } else {
+      const w = m.tile-27+1, tags=[];
+      if(w===state.roundWind) tags.push('장풍');
+      if(w===state.seatWind) tags.push('자풍');
+      if(tags.length) list.push({name:`역패(${HONOR_NAMES[m.tile-27]}) 확정`, desc:`${tags.join('+')} — 울음 세트로 이미 완성됐어요`});
+    }
+  });
   const hasTerminalHonor = TERMINALS_HONORS.some(i=>counts[i]>0);
   if(!hasTerminalHonor) list.push({name:'탄야오', desc:'1·9·자패가 하나도 없어요'});
 
   for(let i=27;i<34;i++){
-    if(counts[i]>=2){
+    if(handCounts[i]>=2){ // 손패에서 모으는 중인 역패만 (울음으로 확정된 건 위에서 처리)
       if(i>=31){
-        list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${counts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
+        list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${handCounts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
       } else {
         const windNum = i-27+1;
         const matchesRound = windNum===state.roundWind;
         const matchesSeat = windNum===state.seatWind;
         if(matchesRound || matchesSeat){
           const tag = matchesRound && matchesSeat ? '장풍+자풍, 더블 역패' : matchesRound ? '장풍' : '자풍';
-          list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${counts[i]}장 보유 · ${tag} 일치 — 3장 모으면 역이 돼요`});
+          list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${handCounts[i]}장 보유 · ${tag} 일치 — 3장 모으면 역이 돼요`});
         } else {
-          list.push({name:`바람패(${HONOR_NAMES[i-27]})`, desc:`${counts[i]}장 보유 · 지금 판/자리 바람과는 안 맞아서 역패는 아니에요`});
+          list.push({name:`바람패(${HONOR_NAMES[i-27]})`, desc:`${handCounts[i]}장 보유 · 지금 판/자리 바람과는 안 맞아서 역패는 아니에요`});
         }
       }
     }
@@ -930,9 +1035,9 @@ function candidateYaku(counts, handLen){
   }
   let pairTypes=0, tripletTypes=0;
   for(let i=0;i<34;i++){ if(counts[i]===2) pairTypes++; if(counts[i]>=3) tripletTypes++; }
-  if(pairTypes+tripletTypes>=3) list.push({name:'토이토이 / 치토이츠 후보', desc:'짝을 맞춘 패가 많이 보여요'});
+  if(pairTypes+tripletTypes>=3) list.push({name: em.length>0 ? '토이토이 후보' : '토이토이 / 치토이츠 후보', desc:'짝을 맞춘 패가 많이 보여요'});
 
-  if(state.menzen) list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
+  if(isMenzen()) list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
   return list;
 }
 
@@ -958,14 +1063,27 @@ function renderHand(){
   state.hand.forEach((code, idx)=>{
     row.appendChild(tileEl(code, { large:true, onClick: ()=>openPicker('edit', idx) }));
   });
-  if(state.hand.length<14){
+  if(state.hand.length<handMax()){
     const add = document.createElement('div');
     add.className='tile-add large';
     add.textContent='+';
     add.addEventListener('click', ()=>openPicker('add', null));
     row.appendChild(add);
   }
-  document.getElementById('handCountLabel').textContent = `(${state.hand.length}/14)`;
+  document.getElementById('handCountLabel').textContent = `(${state.hand.length}/${handMax()})`;
+  const k = state.melds.length;
+  document.getElementById('handNote').textContent =
+    `패를 탭하면 수정하거나 지울 수 있어요. ${handBase()}장이면 대기 상태, ${handMax()}장이면 버릴 패를 계산해요.` +
+    (k>0 ? ` (울음 ${k}세트가 있어서 손패는 ${handMax()}장까지예요)` : '');
+}
+
+// 열린 울음(치·퐁·명깡)이 있으면 멘젠이 자동으로 꺼지므로, 스위치/안내문을 실제 상태에 맞춰요
+function syncMenzenUI(){
+  const hasOpen = state.melds.some(meldIsOpen);
+  document.getElementById('menzenSwitch').classList.toggle('on', isMenzen());
+  document.getElementById('menzenSub').textContent = hasOpen
+    ? '울음 세트(치·퐁·명깡)가 있어서 자동으로 꺼졌어요'
+    : '치·퐁·명깡으로 울었으면 꺼주세요 (안깡은 멘젠 유지)';
 }
 
 const MELD_TYPE_LABEL = { chi:'치', pon:'퐁', kan:'명깡', unknown:'확인 필요' };
@@ -991,26 +1109,127 @@ function reconcileMeldPool(detectedCodes, melds){
   const consume = {};
   melds.forEach(m=> m.tiles.forEach(t=>{ consume[t]=(consume[t]||0)+1; }));
   const leftover = [];
+  const segments = []; // 이미 확정된 세트와 대응된 패가 사이에 끼면 거기서 끊어요 (엉뚱한 패끼리 이어 붙지 않게)
+  let cur = [];
   let matched = 0;
   detectedCodes.forEach(code=>{
-    if(consume[code]>0){ consume[code]--; matched++; }
-    else leftover.push(code);
+    if(consume[code]>0){
+      consume[code]--; matched++;
+      if(cur.length){ segments.push(cur); cur=[]; }
+    } else { leftover.push(code); cur.push(code); }
   });
-  return { leftover, matched };
+  if(cur.length) segments.push(cur);
+  return { leftover, matched, segments };
+}
+
+// 울음구역에서 찾은 패(좌→우 순서)를 왼쪽부터 이어서 "유효한 세트"로 묶어요.
+// 가능한 조합 중 가장 많은 패를 묶는 쪽을 고르고, 같으면 아래 우선순위를 따라요.
+//   안깡(뒷면-X-X-뒷면) → 명깡(같은 패 4) → 퐁(같은 패 3) → 치(같은 무늬 연속 3, 순서 무관) → 안깡(같은 패 2장만 인식)
+// 못 묶는 패는 leftover로 남겨요 (억지로 묶지 않아요).
+function autoGroupMelds(codes){
+  const n = codes.length;
+  const isBack = c => c==='back';
+  function candidatesAt(i){
+    const out = [];
+    const c0 = codes[i];
+    const slice = (len)=>codes.slice(i,i+len);
+    if(isBack(c0)){
+      // 안깡: 양 끝 뒷면이 인식된 경우
+      if(i+3<n && !isBack(codes[i+1]) && codes[i+1]===codes[i+2] && isBack(codes[i+3]))
+        out.push({ len:4, meld:{ tiles:slice(4), type:'kan', concealed:true } });
+      // 한쪽 뒷면만 인식된 경우
+      if(i+2<n && !isBack(codes[i+1]) && codes[i+1]===codes[i+2])
+        out.push({ len:3, meld:{ tiles:['back',codes[i+1],codes[i+1],'back'], type:'kan', concealed:true } });
+      return out;
+    }
+    if(i+3<n && codes[i+1]===c0 && codes[i+2]===c0 && codes[i+3]===c0)
+      out.push({ len:4, meld:{ tiles:slice(4), type:'kan', concealed:false } });
+    if(i+2<n && codes[i+1]===c0 && codes[i+2]===c0)
+      out.push({ len:3, meld:{ tiles:slice(3), type:'pon', concealed:false } });
+    if(i+2<n){
+      const t = slice(3);
+      if(toEngineMeld({ tiles:t, type:'chi' })) out.push({ len:3, meld:{ tiles:t, type:'chi', concealed:false } });
+    }
+    // 같은 패 + 뒷면 (X,X,뒷면) = 안깡
+    if(i+2<n && codes[i+1]===c0 && isBack(codes[i+2]))
+      out.push({ len:3, meld:{ tiles:['back',c0,c0,'back'], type:'kan', concealed:true } });
+    // 가운데 앞면 2장만 인식된 안깡 (양 끝 뒷면이 인식 안 됨) — 가장 약한 후보
+    if(i+1<n && codes[i+1]===c0 && !(i+2<n && codes[i+2]===c0))
+      out.push({ len:2, meld:{ tiles:['back',c0,c0,'back'], type:'kan', concealed:true } });
+    return out;
+  }
+  const memo = new Map();
+  function solve(i){
+    if(i>=n) return { covered:0, plan:[] };
+    if(memo.has(i)) return memo.get(i);
+    let best = null;
+    for(const cand of candidatesAt(i)){
+      const rest = solve(i+cand.len);
+      const covered = cand.len + rest.covered;
+      if(!best || covered>best.covered) best = { covered, plan:[{ meld:cand.meld }, ...rest.plan] };
+    }
+    const skip = solve(i+1);
+    if(!best || skip.covered>best.covered) best = { covered:skip.covered, plan:[{ skip:codes[i] }, ...skip.plan] };
+    memo.set(i,best);
+    return best;
+  }
+  const plan = solve(0).plan;
+  const melds = [], leftover = [];
+  plan.forEach(step=>{
+    if(step.meld) melds.push({ ...step.meld, autoGuess:true });
+    else leftover.push(step.skip);
+  });
+  return { melds, leftover };
+}
+
+// 새 사진에서 찾은 울음구역 패를 반영: 확정 세트와 대조 → 남은 패를 왼쪽부터 자동 묶기 → 못 묶은 패는 미분류로
+function applyDetectedMelds(detectedCodes){
+  const kept = state.melds.length;
+  const { matched, segments } = reconcileMeldPool(detectedCodes, state.melds);
+  const rest = [];
+  segments.forEach(seg=>{
+    const r = autoGroupMelds(seg);
+    r.melds.forEach(m=>{
+      if(state.melds.length<4) state.melds.push(m);
+      else m.tiles.forEach(t=>{ if(t!=='back') rest.push(t); }); // 세트는 최대 4개
+    });
+    rest.push(...r.leftover);
+  });
+  state.meldPool = rest;
+  return { kept, matched, autoGrouped: state.melds.length-kept, leftover: rest.length };
 }
 
 // 퐁 + 같은 패 1장(풀에 남은 것) → 명깡(가칸)으로 합치기
-function upgradePonToKan(meldIdx){
+// 퐁에 같은 패 1장을 더해 명깡(가칸)으로 합쳐요. source: 'pool'(미분류) | 'hand'(손패) | 'manual'(수동 추가 창에서 1장 선택)
+function upgradePonToKan(meldIdx, source){
   const m = state.melds[meldIdx];
   if(!m || m.type!=='pon') return false;
-  const poolIdx = state.meldPool.indexOf(m.tiles[0]);
-  if(poolIdx<0) return false;
-  state.meldPool.splice(poolIdx,1);
-  m.tiles.push(m.tiles[0]);
+  const code = m.tiles[0];
+  if(source==='pool'){
+    const i = state.meldPool.indexOf(code);
+    if(i<0) return false;
+    state.meldPool.splice(i,1);
+  } else if(source==='hand'){
+    const i = state.hand.indexOf(code);
+    if(i<0) return false;
+    state.hand.splice(i,1);
+    state.winTile = null;
+  } else if(source!=='manual'){
+    return false;
+  }
+  m.tiles.push(code);
   m.type='kan';
   m.concealed=false;
   poolSelected = [];
   return true;
+}
+// 이 퐁에 합칠 수 있는 같은 패가 어디에 있는지 (미분류 → 손패 순서로 찾아요)
+function kakanSource(m){
+  if(m.type!=='pon') return null;
+  const code = m.tiles[0];
+  if(state.meldPool.includes(code)) return 'pool';
+  if(state.hand.includes(code)) return 'hand';
+  return null;
 }
 
 function renderMelds(){
@@ -1027,7 +1246,7 @@ function renderMelds(){
     const label = document.createElement('div');
     label.className='info';
     const typeLabel = m.type==='kan' ? (m.concealed?'안깡':'명깡') : (MELD_TYPE_LABEL[m.type]||'확인 필요');
-    label.innerHTML = `<b>${typeLabel}</b>`;
+    label.innerHTML = `<b>${typeLabel}</b>` + (m.autoGuess ? ' <span style="color:var(--text-faint)">(자동 묶음)</span>' : '') + (toEngineMeld(m) ? '' : ' <span style="color:var(--red-bright)">⚠ 규칙에 안 맞아요</span>');
     const delBtn = document.createElement('button');
     delBtn.className='btn btn-red btn-sm';
     delBtn.textContent='삭제';
@@ -1040,13 +1259,16 @@ function renderMelds(){
     row.appendChild(tilesWrap);
     row.appendChild(label);
     row.appendChild(delBtn);
-    if(m.type==='pon' && state.meldPool.indexOf(m.tiles[0])>=0){
+    const kSrc = kakanSource(m);
+    if(kSrc){
       const kakanRow = document.createElement('div');
       kakanRow.style.flexBasis='100%';
       const kb = document.createElement('button');
       kb.className='btn btn-sm';
-      kb.textContent='같은 패가 1장 더 있어요 → 명깡으로 합치기';
-      kb.addEventListener('click', ()=>{ if(upgradePonToKan(idx)) render(); });
+      kb.textContent = kSrc==='pool'
+        ? '미분류 패에 같은 패가 있어요 → 명깡으로 합치기'
+        : '손패에 같은 패가 있어요 → 명깡으로 합치기 (손패에서 1장 사용)';
+      kb.addEventListener('click', ()=>{ if(upgradePonToKan(idx, kSrc)) render(); });
       kakanRow.appendChild(kb);
       row.appendChild(kakanRow);
     }
@@ -1102,9 +1324,10 @@ function confirmPoolMeld(type, concealed){
 function render(){
   renderHand();
   renderMelds();
+  syncMenzenUI();
 
   // 리치는 멘젠 전제 조건이라, 멘젠이 꺼지면 리치도 자동으로 꺼요
-  if(!state.menzen && state.riichi){
+  if(!isMenzen() && state.riichi){
     state.riichi = false;
     document.getElementById('riichiSwitch').classList.remove('on');
   }
@@ -1129,9 +1352,24 @@ function render(){
     return;
   }
 
-  const sh = overallShanten(counts);
+  if(!meldsAllValid()){
+    statusNum.textContent='-';
+    statusLabel.textContent = state.melds.length>4
+      ? '울음 세트는 최대 4개까지예요'
+      : '울음 세트 중 규칙에 맞지 않는 게 있어요 — "울음 구역"에서 ⚠ 표시된 세트를 삭제하고 다시 묶어주세요';
+    return;
+  }
 
-  if(len===14 && sh===-1){
+  const k = state.melds.length;
+  const base = handBase(); // 대기 상태일 때 손패 장수 (울음 1세트당 3장씩 줄어요)
+  if(len>base+1){
+    statusNum.textContent='-';
+    statusLabel.textContent = `손패가 ${len}장이에요. 울음 ${k}세트 기준으로는 최대 ${base+1}장이어야 해요`;
+    return;
+  }
+  const sh = overallShanten(counts, k);
+
+  if(len===base+1 && sh===-1){
     // 완성
     statusNum.textContent='화료';
     statusLabel.textContent='역이 완성됐어요! 아래에서 화료 조건을 설정해보세요';
@@ -1140,7 +1378,7 @@ function render(){
     renderWinTilePicker();
     renderSituationalToggles();
     renderScore();
-  } else if(len===13 && sh===0){
+  } else if(len===base && sh===0){
     statusNum.textContent='텐파이';
     statusLabel.textContent = state.riichi ? '리치 중이에요. 대기 패가 나오면 화료할 수 있어요' : '한 장만 더 있으면 완성이에요';
     waitCard.style.display='block';
@@ -1149,10 +1387,12 @@ function render(){
     renderCandidates(counts, len);
   } else {
     statusNum.textContent = sh<0 ? '-' : (sh+'단계');
-    statusLabel.textContent = len<13 ? `아직 ${13-len}장 더 필요해요` : (len===14 ? `텐파이까지 ${sh}번 더 패를 바꿔야 해요` : `텐파이까지 ${sh}번 더 패를 바꿔야 해요 (교환 횟수 기준)`);
+    statusLabel.textContent = len<base
+      ? `아직 ${base-len}장 더 필요해요` + (k>0 ? ` (울음 ${k}세트 기준)` : '')
+      : (len===base+1 ? `텐파이까지 ${sh}번 더 패를 바꿔야 해요` : `텐파이까지 ${sh}번 더 패를 바꿔야 해요 (교환 횟수 기준)`);
     candCard.style.display='block';
     renderCandidates(counts, len);
-    if(len===14){
+    if(len===base+1){
       discardCard.style.display='block';
       renderDiscards(counts);
     }
@@ -1178,16 +1418,18 @@ function renderCandidates(counts, len){
 }
 
 function renderDiscards(counts){
+  const k = state.melds.length;
+  const extra = meldVisibleCounts(); // 울음 세트로 이미 소진된 패
   const candidates = [];
   for(let t=0;t<34;t++){
     if(counts[t]===0) continue;
     counts[t]--;
-    const sh13 = overallShanten(counts);
+    const sh13 = overallShanten(counts, k);
     let ukeireTypes=0, ukeireTiles=0, waitList=[];
     if(sh13===0){
-      waitList = waitingTiles(counts);
+      waitList = waitingTiles(counts, k, extra);
       ukeireTypes = waitList.length;
-      ukeireTiles = waitList.reduce((a,w)=>a+(4-counts[w]),0);
+      ukeireTiles = waitList.reduce((a,w)=>a+(4-counts[w]-extra[w]),0);
     }
     counts[t]++;
     candidates.push({ tile:t, sh13, ukeireTypes, ukeireTiles, waitList });
@@ -1219,11 +1461,12 @@ function renderDiscards(counts){
 }
 
 function renderWaits(counts13){
-  const waits = waitingTiles(counts13);
+  const extra = meldVisibleCounts();
+  const waits = waitingTiles(counts13, state.melds.length, extra);
   const grid = document.getElementById('waitGrid');
   grid.innerHTML='';
   waits.sort((a,b)=>a-b).forEach(t=>{
-    const remain = 4-counts13[t];
+    const remain = 4-counts13[t]-extra[t];
     const wrap = document.createElement('div');
     wrap.className='wait-item';
     wrap.appendChild(tileEl(indexToCode(t)));
@@ -1296,17 +1539,20 @@ function renderSituationalToggles(){
 }
 
 function buildScoreCtx(winTileIdx){
+  const melds = validEngineMelds();
+  const kansFromMelds = melds.filter(m=>m.kan).length;
   return {
     riichi: state.riichi && !state.situational.doubleRiichi, // 더블리치면 리치 대신 더블리치로 계산
     tsumo: state.method==='tsumo',
     method: state.method,
-    closed: state.menzen,
+    closed: isMenzen(),
+    melds,
     roundWind: state.roundWind,
     seatWind: state.seatWind,
     dora: Number(state.dora)||0,
     winTileIdx: winTileIdx,
     situational: state.situational,
-    kanCount: Number(state.kanCount)||0
+    kanCount: Math.max(Number(state.kanCount)||0, kansFromMelds) // 울음 세트의 깡을 자동으로 세고, 직접 입력한 값과 큰 쪽을 써요
   };
 }
 
@@ -1394,7 +1640,7 @@ function openPicker(mode, idx){
 }
 function closePicker(){
   document.getElementById('pickerOverlay').classList.remove('show');
-  ['meldConfirmChi','meldConfirmPon','meldConfirmKan','meldConfirmAnkan'].forEach(id=>{
+  ['meldConfirmChi','meldConfirmPon','meldConfirmKan','meldConfirmAnkan','meldConfirmKakan'].forEach(id=>{
     document.getElementById(id).style.display='none';
   });
 }
@@ -1422,6 +1668,11 @@ function renderMeldPreview(){
   ponBtn.style.display = meldTemp.length===3 ? 'inline-flex' : 'none';
   kanBtn.style.display = meldTemp.length===4 ? 'inline-flex' : 'none';
   ankanBtn.style.display = meldTemp.length===4 ? 'inline-flex' : 'none';
+  // 1장만 골랐고 같은 패의 퐁이 이미 있으면 → 가칸(명깡) 합치기 버튼
+  const kakanBtn = document.getElementById('meldConfirmKakan');
+  const ponIdx = meldTemp.length===1 ? state.melds.findIndex(m=>m.type==='pon' && m.tiles[0]===meldTemp[0]) : -1;
+  kakanBtn.style.display = ponIdx>=0 ? 'inline-flex' : 'none';
+  kakanBtn.dataset.ponIdx = String(ponIdx);
 }
 
 function renderPickerGrid(){
@@ -1463,7 +1714,7 @@ function chooseTile(code){
     return;
   }
   if(pickerMode==='add'){
-    if(state.hand.length>=14) return;
+    if(state.hand.length>=handMax()) return;
     state.hand.push(code);
   } else if(pickerMode==='edit'){
     state.hand[pickerEditIdx] = code;
@@ -1483,6 +1734,10 @@ document.getElementById('meldConfirmChi').addEventListener('click', ()=>confirmM
 document.getElementById('meldConfirmPon').addEventListener('click', ()=>confirmMeld('pon', false));
 document.getElementById('meldConfirmKan').addEventListener('click', ()=>confirmMeld('kan', false));
 document.getElementById('meldConfirmAnkan').addEventListener('click', ()=>confirmMeld('kan', true));
+document.getElementById('meldConfirmKakan').addEventListener('click', function(){
+  const idx = Number(this.dataset.ponIdx);
+  if(upgradePonToKan(idx, 'manual')){ closePicker(); render(); }
+});
 document.getElementById('btnAddMeld').addEventListener('click', ()=>openPicker('meldAdd', null));
 document.getElementById('btnClearMelds').addEventListener('click', ()=>{
   if(state.melds.length===0 && state.meldPool.length===0) return;
@@ -1497,6 +1752,18 @@ document.getElementById('poolConfirmChi').addEventListener('click', ()=>confirmP
 document.getElementById('poolConfirmPon').addEventListener('click', ()=>confirmPoolMeld('pon', false));
 document.getElementById('poolConfirmKan').addEventListener('click', ()=>confirmPoolMeld('kan', false));
 document.getElementById('poolConfirmAnkan').addEventListener('click', ()=>confirmPoolMeld('kan', true));
+document.getElementById('poolAutoGroup').addEventListener('click', ()=>{
+  const r = autoGroupMelds(state.meldPool);
+  const rest = [];
+  r.melds.forEach(m=>{
+    if(state.melds.length<4) state.melds.push(m);
+    else m.tiles.forEach(t=>{ if(t!=='back') rest.push(t); });
+  });
+  rest.push(...r.leftover);
+  state.meldPool = rest;
+  poolSelected = [];
+  render();
+});
 document.getElementById('poolDiscard').addEventListener('click', ()=>{
   const idxs = [...poolSelected].sort((a,b)=>a-b);
   [...idxs].reverse().forEach(i=> state.meldPool.splice(i,1));
@@ -1520,8 +1787,8 @@ document.getElementById('riichiSwitch').addEventListener('click', function(){
   render();
 });
 document.getElementById('menzenSwitch').addEventListener('click', function(){
+  if(state.melds.some(meldIsOpen)) return; // 열린 울음이 있으면 멘젠은 자동으로 꺼져 있어요
   state.menzen = !state.menzen;
-  this.classList.toggle('on', state.menzen);
   render();
 });
 document.getElementById('dealerSwitch').addEventListener('click', function(){
@@ -1780,36 +2047,8 @@ function splitHandAndMelds(dets){
 }
 
 // X좌표 간격을 기준으로 울음구역 패들을 3~4장씩 세트로 묶어요
-function clusterMeldGroups(meldDets){
-  if(meldDets.length===0) return [];
-  const sorted = [...meldDets].sort((a,b)=>a.x1-b.x1);
-  const avgW = sorted.reduce((a,d)=>a+(d.x2-d.x1),0)/sorted.length;
-  const groups=[];
-  let current=[sorted[0]];
-  for(let i=1;i<sorted.length;i++){
-    const gap = sorted[i].x1 - current[current.length-1].x2;
-    if(gap > avgW*0.6){ groups.push(current); current=[sorted[i]]; }
-    else current.push(sorted[i]);
-  }
-  groups.push(current);
-  return groups;
-}
 
 // 자동 클러스터링 결과를 melds 데이터 구조({tiles, type, concealed})로 변환
-function detsToMeld(group){
-  const tiles = group.map(d=>detLabelToCode(d.label));
-  if(group.length===4){
-    const first = group[0].label, last = group[group.length-1].label;
-    const concealed = (first==='0b' && last==='0b');
-    return { tiles, type:'kan', concealed, autoGuess:true };
-  }
-  if(group.length===3){
-    const allSame = tiles.every(t=>t===tiles[0]);
-    return { tiles, type: allSame?'pon':'chi', concealed:false, autoGuess:true };
-  }
-  // 3장도 4장도 아니면 자동 판정이 애매해요 — 그대로 담아두고 사용자가 수동으로 고치게 해요
-  return { tiles, type:'unknown', concealed:false, autoGuess:true };
-}
 
 function detLabelToCode(label){
   if(label==='0b') return 'back'; // 뒷면(식별불가) - 일반 패 코드가 아닌 특수 표시
@@ -1817,9 +2056,6 @@ function detLabelToCode(label){
   if(label==='0p') return 'p5';
   if(label==='0s') return 's5';
   return classLabelToCode(label);
-}
-function meldTileGlyph(code){
-  return code==='back' ? '🀫' : glyphOf(tileIndex(code));
 }
 
 /* ===================== 카메라 인식 ===================== */
@@ -1875,25 +2111,27 @@ async function handleImage(file){
       if(d.label==='0s'){ meldRedFives++; return 's5'; }
       return detLabelToCode(d.label);
     });
-    const { leftover, matched } = reconcileMeldPool(detectedMeldCodes, state.melds);
-    state.meldPool = leftover;
+    const st = applyDetectedMelds(detectedMeldCodes);
 
     let note = '';
     if(redFives+meldRedFives>0){
       state.dora = redFives+meldRedFives;
       note += `빨간 5(아카도라) ${redFives+meldRedFives}장을 도라 개수에 자동 반영했어요. `;
     }
-    if(state.melds.length>0){
+    if(st.kept>0){
       if(detectedMeldCodes.length===0){
-        note += `이번 사진에서는 울음구역을 못 찾았어요. 확정해둔 세트 ${state.melds.length}개는 그대로 유지했어요. `;
-      } else if(matched===0){
+        note += `이번 사진에서는 울음구역을 못 찾았어요. 확정해둔 세트 ${st.kept}개는 그대로 유지했어요. `;
+      } else if(st.matched===0){
         note += `확정해둔 울음 세트와 겹치는 패가 하나도 없어요. 새 판이면 "울음 전체 비우기"를 눌러주세요. `;
       } else {
-        note += `확정해둔 울음 세트 ${state.melds.length}개는 유지했어요 (이번 사진에서 ${matched}장 확인). `;
+        note += `확정해둔 울음 세트 ${st.kept}개는 유지했어요 (이번 사진에서 ${st.matched}장 확인). `;
       }
     }
-    if(state.meldPool.length>0){
-      note += `새로 찾은 미분류 패 ${state.meldPool.length}장은 아래 "울음 구역"에서 묶어주세요.`;
+    if(st.autoGrouped>0){
+      note += `새로 찾은 패를 왼쪽부터 ${st.autoGrouped}세트로 자동으로 묶었어요 — "울음 구역"에서 맞는지 확인하고, 틀리면 삭제 후 고쳐주세요. `;
+    }
+    if(st.leftover>0){
+      note += `묶이지 않은 패 ${st.leftover}장은 "울음 구역" 아래 미분류에 있어요.`;
     }
     if(note) errBox.innerHTML = `<div class="count-note">${note}</div>`;
     render();
