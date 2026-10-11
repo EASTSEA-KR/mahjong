@@ -265,10 +265,10 @@
       <div>
         <div class="switch-row">
           <div>
-            <div class="switch-label">리치 선언</div>
-            <div class="switch-sub">뽑은 패를 그대로 버려야 해요</div>
+            <div class="switch-label">오야 여부</div>
+            <div class="switch-sub">내가 오야(딜러)이면 켜주세요</div>
           </div>
-          <div class="switch" id="riichiSwitch"><div class="knob"></div></div>
+          <div class="switch" id="dealerSwitch"><div class="knob"></div></div>
         </div>
         <div class="switch-row" style="margin-top:14px;">
           <div>
@@ -277,11 +277,14 @@
           </div>
           <div class="switch on" id="menzenSwitch"><div class="knob"></div></div>
         </div>
+        <div class="switch-row" style="margin-top:14px;">
+          <div>
+            <div class="switch-label">리치 선언</div>
+            <div class="switch-sub">뽑은 패를 그대로 버려야 해요</div>
+          </div>
+          <div class="switch" id="riichiSwitch"><div class="knob"></div></div>
+        </div>
       </div>
-    </div>
-    <div class="num-input-row" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
-      <span class="switch-sub">도라 개수 (대기패 미리보기·최종 점수에 모두 반영돼요)</span>
-      <input type="number" id="doraInput" min="0" max="10" value="0">
     </div>
   </div>
 
@@ -361,28 +364,29 @@
   <div class="card" id="waitCard" style="display:none;">
     <div class="card-title">텐파이 — 대기 패</div>
     <div class="wait-grid" id="waitGrid"></div>
-    <div class="count-note" style="margin-top:10px;">판수는 지금 설정된 리치·바람·도라 기준 참고용이에요. 도라 표시패나 상황역은 위쪽 "화료 옵션"에서 바뀌어요.</div>
+    <div class="count-note" style="margin-top:10px;">판수는 지금 설정된 오야·멘젠·리치·바람 기준 참고용이에요. 도라·화료 방식·상황역은 손패가 완성되면 나오는 "화료 옵션"에서 설정해요 (설정해둔 값은 여기 미리보기에도 반영돼요).</div>
   </div>
 
   <div class="card" id="completeCard" style="display:none;">
     <div class="card-title">화료 옵션</div>
-    <div style="margin-bottom:12px;">
+    <div class="switch-sub" style="margin-bottom:6px;">화료 패 (정확한 점수 계산을 위해 선택)</div>
+    <div class="hand-row" id="winTilePicker"></div>
+
+    <div style="margin:16px 0 12px;">
       <div class="switch-sub" style="margin-bottom:6px;">화료 방식</div>
       <div class="seg" id="tsumoRonSeg">
         <button data-v="ron" class="active">론 (상대 패로 완성)</button>
         <button data-v="tsumo">쯔모 (직접 뽑아 완성)</button>
       </div>
     </div>
-    <div class="switch-row" style="margin-bottom:6px;">
-      <div class="switch-label">오야(딜러)인가요?</div>
-      <div class="switch" id="dealerSwitch"><div class="knob"></div></div>
+    <div class="num-input-row" style="margin: 0 0 14px;">
+      <span class="switch-sub">도라 개수</span>
+      <input type="number" id="doraInput" min="0" max="10" value="0">
     </div>
-    <div class="num-input-row" style="margin: 10px 0 14px;">
+    <div class="num-input-row" style="margin: 0 0 14px;">
       <span class="switch-sub">깡 개수 (사진으로는 구분이 안 돼요, 직접 입력)</span>
       <input type="number" id="kanInput" min="0" max="4" value="0">
     </div>
-    <div class="switch-sub" style="margin-bottom:6px;">화료 패 (정확한 점수 계산을 위해 선택)</div>
-    <div class="hand-row" id="winTilePicker"></div>
 
     <div class="switch-sub" style="margin:16px 0 6px;">상황역 (해당하면 켜주세요 — 사진만으로는 알 수 없는 조건들이에요)</div>
     <div id="situationalToggles"></div>
