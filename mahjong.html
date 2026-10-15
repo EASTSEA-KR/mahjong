@@ -9,6 +9,8 @@
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
 <style>
   :root{
+    --tile-font:58px;        /* 모든 패 글자 크기의 기본값 */
+    --tile-font-picker:40px; /* 패 고르기 창(패 추가/세트 수동 추가)의 전체 패 목록 */
     --bg:#12201a;
     --bg-weave: rgba(255,255,255,0.02);
     --panel:#1c2e25;
@@ -83,37 +85,32 @@
 
   /* tiles */
   .tile{
-    width: 34px; height: 46px; min-width:34px;
+    /* 배경(상아색)은 글자 크기에 맞춰 늘어나고, 글자와 배경 사이는 2px, 가로·세로 정중앙 정렬이에요 */
+    display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+    padding:2px;
+    font-size: var(--tile-font); line-height:1; color: var(--ink);
     background: linear-gradient(180deg, var(--ivory), var(--ivory-dim));
-    border-radius: 5px;
+    border-radius: 6px;
     border: 1px solid rgba(0,0,0,0.25);
     box-shadow: 0 2px 0 rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.4);
-    display:flex; align-items:center; justify-content:center;
-    font-size: 24px; line-height:1; color: var(--ink);
     cursor:pointer; user-select:none; position:relative; flex-shrink:0;
   }
-  .tile.small{ width:28px; height:38px; font-size:19px; border-radius:4px; }
-  .tile.meld{ width:44px; height:60px; min-width:44px; font-size:34px; border-radius:6px; }
+  .tile.ghost{ opacity:0.4; background:transparent; border-style:dashed; box-shadow:none; color:var(--ivory); }
   .tile.suit-p{ color: var(--ink-blue); }
   .tile.suit-s{ color: var(--ink-green); }
   .tile.suit-z-dragon{ color: var(--red); }
   .tile.selected{ outline: 2px solid var(--gold-bright); outline-offset: 2px; }
   .tile.win-marker{ outline: 2px solid var(--red-bright); outline-offset: 2px; }
+  /* + 버튼도 패와 같은 크기가 되도록 투명한 패 글자를 안에 넣고, + 는 가운데에 겹쳐 그려요 */
   .tile-add{
-    width:34px; height:46px; border-radius:5px; border: 1.5px dashed var(--line);
-    display:flex; align-items:center; justify-content:center; color: var(--text-faint);
-    font-size:20px; cursor:pointer; flex-shrink:0;
+    position:relative; display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+    padding:2px; border-radius:6px; border:1px dashed var(--line);
+    font-size:var(--tile-font); line-height:1; color:transparent; cursor:pointer; flex-shrink:0; user-select:none;
   }
-  .tile-add:hover{ border-color: var(--gold); color: var(--gold-bright); }
+  .tile-add::after{ content:'+'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-faint); font-size:34px; }
+  .tile-add:hover{ border-color: var(--gold); }
+  .tile-add:hover::after{ color: var(--gold-bright); }
   .hand-row{ display:flex; gap:5px; flex-wrap:wrap; }
-  .hand-row .tile.large{
-    flex: 0 0 calc((100% - 30px)/7);
-    width:auto; height:auto; aspect-ratio: 34/46; font-size:34px; border-radius:7px;
-  }
-  .hand-row .tile-add.large{
-    flex: 0 0 calc((100% - 30px)/7);
-    width:auto; height:auto; aspect-ratio: 34/46; font-size:34px; border-radius:7px;
-  }
   .two-col{ display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
   @media (max-width: 380px){ .two-col{ grid-template-columns: 1fr; gap:14px; } }
   .count-note{ margin-top:10px; font-size:12px; color: var(--text-faint); }
@@ -131,11 +128,18 @@
   .seg button{ flex:1; padding:9px; background:transparent; border:none; color: var(--text-dim); font-family:'Noto Sans KR'; font-size:13px; cursor:pointer; }
   .seg button.active{ background: var(--gold); color: var(--ink); font-weight:700; }
 
-  .num-input-row{ display:flex; align-items:center; gap:10px; }
+  .num-input-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .stepper{ display:inline-flex; align-items:center; gap:4px; }
+  .stepper .step{ width:36px; height:36px; padding:0; border-radius:7px; border:1px solid var(--line); background:rgba(255,255,255,0.03);
+    color:var(--text-dim); font-size:13px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .stepper .step:active{ transform:scale(0.94); background:rgba(201,154,70,0.15); }
   .num-input-row input[type=number]{
     width:64px; background:#0d1712; border:1px solid var(--line); border-radius:7px; color:var(--text);
     padding:8px; font-size:14px; text-align:center; font-family:'Noto Sans KR';
+    -moz-appearance:textfield; appearance:textfield;
   }
+  .num-input-row input[type=number]::-webkit-inner-spin-button,
+  .num-input-row input[type=number]::-webkit-outer-spin-button{ -webkit-appearance:none; margin:0; }
 
   /* status */
   .status-hero{ text-align:center; padding: 6px 0 4px; }
@@ -185,7 +189,7 @@
   .picker-suit-label{ font-size:11.5px; color: var(--text-faint); margin: 12px 0 6px; }
   .picker-grid{ display:grid; grid-template-columns: repeat(9, 1fr); gap:5px; }
   .picker-cell{ display:flex; flex-direction:column; align-items:center; gap:3px; }
-  .picker-cell .tile{ width:100%; height:42px; font-size:20px; }
+  .picker-cell .tile{ font-size:var(--tile-font-picker); }
   .picker-cell .ct{ font-size:9.5px; color: var(--text-faint); }
   .picker-cell.disabled .tile{ opacity:0.25; cursor:default; }
 
@@ -195,6 +199,29 @@
   details.card > summary::-webkit-details-marker{ display:none; }
   details.card > summary::after{ content:'▾'; float:right; color:var(--text-faint); }
   details.card[open] > summary::after{ content:'▴'; }
+  /* 추천 버릴 패 */
+  .dc{ border-bottom:1px solid var(--line-soft); padding:12px 0; }
+  .dc:last-child{ border-bottom:none; }
+  .dc-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .dc-rank{ font-family:'Noto Serif KR',serif; font-weight:700; color:var(--gold-bright); font-size:15px; min-width:54px; }
+  .dc-rank.top{ color:var(--red-bright); }
+  .dc-title{ font-size:13.5px; line-height:1.9; flex:1; min-width:140px; }
+  .dc-sub{ color:var(--text-faint); font-size:12px; }
+  .dc-line{ font-size:12.5px; color:var(--text-dim); line-height:1.65; margin-top:5px; }
+  .dc-k{ display:inline-block; min-width:64px; color:var(--gold); font-weight:700; font-size:11.5px; }
+  .dc-line .plus{ color:#7fd18b; font-weight:700; }
+  .dc-line .minus{ color:var(--red-bright); font-weight:700; }
+  .dc-tip{ background:rgba(201,154,70,0.12); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.7; margin:4px 0 6px; color:var(--text); }
+  .chip{ display:inline-block; font-size:11px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); color:var(--text-dim); }
+  .chip.good{ border-color:#7fd18b; color:#9be3a5; }
+  .chip.warn{ border-color:var(--red-bright); color:#e6b8ab; }
+  .gloss summary{ cursor:pointer; font-size:12px; color:var(--text-faint); margin-top:12px; }
+  /* 노릴만한 역 후보의 패 그림 */
+  .yv{ margin-top:8px; }
+  .yv-label{ font-size:11.5px; color:var(--text-faint); margin-bottom:4px; }
+  .yv-row{ display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; }
+  .yv-group{ display:inline-flex; align-items:center; gap:3px; }
+  .yv-plus{ color:var(--gold-bright); font-weight:700; font-size:22px; margin:0 4px; }
   .region-stage{ position:relative; touch-action:none; user-select:none; -webkit-user-select:none; }
   .region-stage canvas{ width:100%; height:auto; display:block; border-radius:6px; background:#0d1712; }
   .region-rect{ position:absolute; box-sizing:border-box; border:2px solid; cursor:move; touch-action:none; }
@@ -215,7 +242,6 @@
   footer{ max-width:480px; margin: 18px auto 0; padding: 0 18px; font-size:11px; color: var(--text-faint); line-height:1.8; text-align:center; }
 
   input[type=file]{ display:none; }
-  @media (min-width:480px){ .tile{ width:36px; } .tile.small{ width:30px; } }
 </style>
 </head>
 <body>
@@ -259,7 +285,7 @@
         </div>
         <div class="num-input-row">
           <span class="switch-sub">연장 (혼바)</span>
-          <input type="number" id="honbaInput" min="0" max="20" value="0">
+          <span class="stepper"><input type="number" id="honbaInput" min="0" max="20" value="0"><button type="button" class="step" id="honbaDown" aria-label="줄이기">▼</button><button type="button" class="step" id="honbaUp" aria-label="늘리기">▲</button></span>
         </div>
       </div>
       <div>
@@ -358,7 +384,21 @@
 
   <div class="card" id="discardCard" style="display:none;">
     <div class="card-title">추천 버릴 패</div>
+    <div class="count-note" id="discardIntro" style="margin:0 0 8px;"></div>
+    <div id="discardTip"></div>
     <div id="discardList"></div>
+    <div class="count-note" id="discardFoot" style="margin-top:8px;"></div>
+    <details class="gloss">
+      <summary>용어가 어려우면 눌러보세요 (단계 · 유효패 · 대기)</summary>
+      <div class="count-note" style="line-height:1.9; margin-top:6px;">
+        <b>단계(샹텐)</b> : 텐파이(한 장만 더 있으면 완성)까지 남은 단계예요. 숫자가 작을수록 완성에 가까워요.<br>
+        <b>텐파이</b> : 한 장만 더 오면 완성되는 상태예요.<br>
+        <b>대기</b> : 텐파이일 때 기다리는 패예요. 대기 장수가 많을수록 빨리 완성돼요.<br>
+        <b>유효패</b> : 뽑으면 완성에 한 단계 가까워지는 패예요. 많을수록 빨라요.<br>
+        <b>외톨이 패</b> : 주변 숫자와 이어지지 않아 완성에 도움이 안 되는 패예요. 먼저 버리기 좋아요.<br>
+        <b>판수</b> : 역의 점수 단위예요. 높을수록 점수가 커요.
+      </div>
+    </details>
   </div>
 
   <div class="card" id="waitCard" style="display:none;">
@@ -381,11 +421,11 @@
     </div>
     <div class="num-input-row" style="margin: 0 0 14px;">
       <span class="switch-sub">도라 개수</span>
-      <input type="number" id="doraInput" min="0" max="10" value="0">
+      <span class="stepper"><input type="number" id="doraInput" min="0" max="10" value="0"><button type="button" class="step" id="doraDown" aria-label="줄이기">▼</button><button type="button" class="step" id="doraUp" aria-label="늘리기">▲</button></span>
     </div>
     <div class="num-input-row" style="margin: 0 0 14px;">
       <span class="switch-sub">깡 개수 (사진으로는 구분이 안 돼요, 직접 입력)</span>
-      <input type="number" id="kanInput" min="0" max="4" value="0">
+      <span class="stepper"><input type="number" id="kanInput" min="0" max="4" value="0"><button type="button" class="step" id="kanDown" aria-label="줄이기">▼</button><button type="button" class="step" id="kanUp" aria-label="늘리기">▲</button></span>
     </div>
 
     <div class="switch-sub" style="margin:16px 0 6px;">상황역 (해당하면 켜주세요 — 사진만으로는 알 수 없는 조건들이에요)</div>
@@ -444,6 +484,10 @@
     <div id="meldPreviewWrap" style="display:none; margin-bottom:12px;">
       <div class="switch-sub" style="margin-bottom:6px;">선택한 패 (탭해서 뺄 수 있어요)</div>
       <div class="hand-row" id="meldPreviewRow"></div>
+    </div>
+    <div id="meldHandWrap" style="display:none; margin-bottom:12px;">
+      <div class="switch-sub" style="margin-bottom:6px;">현재 손패 (탭하면 이 세트로 옮겨지고, 손패에서는 빠져요)</div>
+      <div class="hand-row" id="meldHandRow"></div>
     </div>
     <div id="pickerBody"></div>
     <div class="btn-row" style="margin-top:14px;">
@@ -767,7 +811,7 @@ function computeYaku(hand, ctx){
   if(fixed.length===0 && isKokushi(counts)){
     list.push({name:'국사무쌍', han:13, yakuman:true});
     const han = list.reduce((a,y)=>a+y.han,0);
-    return { list, han, yakuman:true, decomposition:null, chiitoi:false };
+    return { list, han, yakuman:true, decomposition:null, chiitoi:false, hasYaku:true };
   }
 
   // 손패가 "표준형(4멘츠+1페어)"과 "치토이츠(7쌍)"로 동시에 해석 가능한 경우가 있어요.
@@ -841,7 +885,7 @@ function computeYaku(hand, ctx){
 
     if(sList.some(y=>y.yakuman)){
       const han = sList.reduce((a,y)=>a+y.han,0);
-      standardResult = { list: sList, han, yakuman:true, decomposition, chiitoi:false };
+      standardResult = { list: sList, han, yakuman:true, decomposition, chiitoi:false, hasYaku:true };
     } else {
       // 야쿠하이: 삼원패는 항상, 바람패는 판바람/자리바람과 일치할 때 자동 판정
       melds.filter(m=>m.type==='triplet' && m.tile>=31).forEach(m=>{
@@ -918,7 +962,8 @@ function computeYaku(hand, ctx){
 
       if(ctx.dora>0) sList.push({name:'도라', han: ctx.dora});
       const han = sList.reduce((a,y)=>a+y.han,0);
-      standardResult = { list: sList, han, yakuman:false, decomposition, chiitoi:false };
+      // 도라는 판수만 올려줄 뿐 역이 아니라서, 도라 말고 역이 하나도 없으면 화료할 수 없어요
+      standardResult = { list: sList, han, yakuman:false, decomposition, chiitoi:false, hasYaku: sList.some(y=>y.name!=='도라') };
     }
   }
 
@@ -931,7 +976,7 @@ function computeYaku(hand, ctx){
     else if(honitsu) cList.push({name:'혼일색', han:3});
     if(ctx.dora>0) cList.push({name:'도라', han: ctx.dora});
     const han = cList.reduce((a,y)=>a+y.han,0);
-    chiitoiResult = { list: cList, han, yakuman:false, decomposition:null, chiitoi:true };
+    chiitoiResult = { list: cList, han, yakuman:false, decomposition:null, chiitoi:true, hasYaku:true };
   }
 
   // 더 높은 점수(판수) 쪽을 채택 — 역만은 항상 13판 이상이라 자동으로 우선됨
@@ -1083,6 +1128,7 @@ function scoreFromHanFu(han, fu, isDealer, tsumo, playerCount, honba){
 }
 
 /* ===================== 후보 역 휴리스틱 ===================== */
+// 각 후보에는 비교용 key, 짧은 이름(shortName), 그림으로 보여줄 visual({label, groups:[{held:[패], need:[아직 없는 패]}]})이 붙어요
 function candidateYaku(handCounts, handLen){
   if(handLen===0) return [];
   const list=[];
@@ -1090,51 +1136,88 @@ function candidateYaku(handCounts, handLen){
   const em = validEngineMelds();
   const counts = handCounts.slice();
   meldTypeCounts(em).forEach((v,i)=>{ counts[i]+=v; });
+  const code = i => indexToCode(i);
+  const rep = (i,n)=> Array(n).fill(code(i));
 
   // 울음 세트로 이미 확정된 역패
   em.filter(m=>m.type==='triplet' && m.tile>=27).forEach(m=>{
+    const held = rep(m.tile, m.kan?4:3);
+    const nm = HONOR_NAMES[m.tile-27];
     if(m.tile>=31){
-      list.push({name:`역패(${HONOR_NAMES[m.tile-27]}) 확정`, desc:'울음 세트로 이미 완성됐어요'});
+      list.push({ key:`yh-${m.tile}`, shortName:`역패(${nm})`, name:`역패(${nm}) 확정`, desc:'울음 세트로 이미 완성됐어요', visual:{ groups:[{ held }] } });
     } else {
       const w = m.tile-27+1, tags=[];
       if(w===state.roundWind) tags.push('장풍');
       if(w===state.seatWind) tags.push('자풍');
-      if(tags.length) list.push({name:`역패(${HONOR_NAMES[m.tile-27]}) 확정`, desc:`${tags.join('+')} — 울음 세트로 이미 완성됐어요`});
+      if(tags.length) list.push({ key:`yh-${m.tile}`, shortName:`역패(${nm})`, name:`역패(${nm}) 확정`, desc:`${tags.join('+')} — 울음 세트로 이미 완성됐어요`, visual:{ groups:[{ held }] } });
     }
   });
-  const hasTerminalHonor = TERMINALS_HONORS.some(i=>counts[i]>0);
-  if(!hasTerminalHonor) list.push({name:'탄야오', desc:'1·9·자패가 하나도 없어요'});
 
+  // 탄야오: 울음 세트에 1·9·자패가 있으면 불가능, 손패에 3장 이하만 있으면 "정리하면 가능"으로 보여줘요
+  const meldBlocksTanyao = em.some(m=> m.type==='run' ? (m.tile%9===0 || m.tile%9===6) : isTerminalOrHonor(m.tile));
+  const blockers = [];
+  TERMINALS_HONORS.forEach(i=>{ for(let n=0;n<handCounts[i];n++) blockers.push(i); });
+  if(!meldBlocksTanyao){
+    if(blockers.length===0){
+      list.push({ key:'tanyao', shortName:'탄야오', name:'탄야오', desc:'1·9·자패가 하나도 없어요' });
+    } else if(blockers.length<=3){
+      list.push({ key:'tanyao', partial:true, shortName:'탄야오', name:`탄야오 (${blockers.length}장만 정리하면)`,
+        desc:'아래 1·9·자패만 버리면 탄야오를 노릴 수 있어요',
+        visual:{ label:'정리할 패', groups: blockers.map(b=>({ held:[code(b)] })) } });
+    }
+  }
+
+  // 역패: 손패에서 모으는 중인 것 (울음으로 확정된 건 위에서 처리)
   for(let i=27;i<34;i++){
-    if(handCounts[i]>=2){ // 손패에서 모으는 중인 역패만 (울음으로 확정된 건 위에서 처리)
-      if(i>=31){
-        list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${handCounts[i]}장 보유 · 3장을 모으면 역이 될 수 있어요`});
+    const c = handCounts[i];
+    if(c<2) continue;
+    const nm = HONOR_NAMES[i-27];
+    const visual = { groups:[{ held:rep(i,c), need: c===2 ? [code(i)] : [] }] };
+    if(i>=31){
+      list.push({ key:`yh-${i}`, shortName:`역패(${nm})`, name:`역패(${nm}) ${c>=3?'완성':'후보'}`,
+        desc: c>=3 ? '손패에 이미 3장 있어요 — 역패 완성!' : `${c}장 보유 · 한 장만 더 모으면 역이 돼요`, visual });
+    } else {
+      const w = i-27+1, mr = (w===state.roundWind), ms = (w===state.seatWind);
+      if(mr || ms){
+        const tag = mr&&ms ? '장풍+자풍, 더블 역패' : mr ? '장풍' : '자풍';
+        list.push({ key:`yh-${i}`, shortName:`역패(${nm})`, name:`역패(${nm}) ${c>=3?'완성':'후보'}`,
+          desc: c>=3 ? `손패에 이미 3장 있어요 — ${tag} 완성!` : `${c}장 보유 · ${tag} 일치 — 한 장만 더 모으면 역이 돼요`, visual });
       } else {
-        const windNum = i-27+1;
-        const matchesRound = windNum===state.roundWind;
-        const matchesSeat = windNum===state.seatWind;
-        if(matchesRound || matchesSeat){
-          const tag = matchesRound && matchesSeat ? '장풍+자풍, 더블 역패' : matchesRound ? '장풍' : '자풍';
-          list.push({name:`역패(${HONOR_NAMES[i-27]}) 후보`, desc:`${handCounts[i]}장 보유 · ${tag} 일치 — 3장 모으면 역이 돼요`});
-        } else {
-          list.push({name:`바람패(${HONOR_NAMES[i-27]})`, desc:`${handCounts[i]}장 보유 · 지금 판/자리 바람과는 안 맞아서 역패는 아니에요`});
-        }
+        list.push({ key:null, name:`바람패(${nm})`, desc:`${c}장 보유 · 지금 판/자리 바람과는 안 맞아서 역패는 아니에요` });
       }
     }
   }
+
+  // 혼일색/청일색
   const suitsUsed = new Set(); let honorCount=0;
   for(let i=0;i<27;i++){ if(counts[i]>0) suitsUsed.add(Math.floor(i/9)); }
-  for(let i=27;i<34;i++){ if(counts[i]>0) honorCount+=counts[i]; }
+  for(let i=27;i<34;i++){ honorCount += counts[i]; }
   if(suitsUsed.size===1){
-    list.push({name: honorCount>0?'혼일색 후보':'청일색 후보', desc:'한 가지 무늬 위주로 모이고 있어요'});
+    list.push({ key: honorCount>0?'honitsu':'chinitsu', shortName: honorCount>0?'혼일색':'청일색',
+      name: honorCount>0?'혼일색 후보':'청일색 후보', desc:'한 가지 무늬 위주로 모이고 있어요' });
   } else if(suitsUsed.size===2 && honorCount>0){
-    list.push({name:'혼일색 후보', desc:'무늬를 한 가지로 좁히면 노려볼 수 있어요'});
+    const used = [...suitsUsed];
+    const suitHand = [0,1,2].map(si=>{ let n=0; for(let i=si*9;i<si*9+9;i++) n+=handCounts[i]; return n; });
+    const meldSuits = new Set(); meldTypeCounts(em).forEach((v,i)=>{ if(v>0 && i<27) meldSuits.add(Math.floor(i/9)); });
+    const minor = suitHand[used[0]]<=suitHand[used[1]] ? used[0] : used[1];
+    const off = []; for(let i=minor*9;i<minor*9+9;i++) for(let n=0;n<handCounts[i];n++) off.push(i);
+    const visual = (!meldSuits.has(minor) && off.length>0 && off.length<=4)
+      ? { label:'정리할 패 (이 패만 버리면 혼일색)', groups: off.map(b=>({ held:[code(b)] })) } : null;
+    list.push({ key:'honitsu', partial:true, shortName:'혼일색', name:'혼일색 후보', desc:'무늬를 한 가지로 좁히면 노려볼 수 있어요', visual });
   }
+
+  // 토이토이 / 치토이츠
   let pairTypes=0, tripletTypes=0;
   for(let i=0;i<34;i++){ if(counts[i]===2) pairTypes++; if(counts[i]>=3) tripletTypes++; }
-  if(pairTypes+tripletTypes>=3) list.push({name: em.length>0 ? '토이토이 후보' : '토이토이 / 치토이츠 후보', desc:'짝을 맞춘 패가 많이 보여요'});
+  if(pairTypes+tripletTypes>=3){
+    const groups = [];
+    for(let i=0;i<34;i++){ const c=handCounts[i]; if(c>=2) groups.push({ held:rep(i,c), need: c===2 ? [code(i)] : [] }); }
+    list.push({ key:'toitoi', shortName:'토이토이', name: em.length>0 ? '토이토이 후보' : '토이토이 / 치토이츠 후보',
+      desc:'짝을 맞춘 패가 많이 보여요',
+      visual: groups.length ? { label:'모은 짝 (같은 패를 한 장씩 더 모으면 삼각이 돼요)', groups } : null });
+  }
 
-  if(isMenzen()) list.push({name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요'});
+  if(isMenzen()) list.push({ key:'riichi', shortName:'리치', name:'리치', desc:'멘젠 상태로 텐파이가 되면 선언할 수 있어요' });
   return list;
 }
 
@@ -1162,8 +1245,8 @@ function renderHand(){
   });
   if(state.hand.length<handMax()){
     const add = document.createElement('div');
-    add.className='tile-add large';
-    add.textContent='+';
+    add.className='tile-add';
+    add.textContent='🀫'; // 보이지 않는 글자로 크기만 패와 맞추고, + 는 CSS로 그려요
     add.addEventListener('click', ()=>openPicker('add', null));
     row.appendChild(add);
   }
@@ -1482,6 +1565,8 @@ function render(){
     renderWaits(counts);
     candCard.style.display='block';
     renderCandidates(counts, len);
+    discardCard.style.display='block';
+    renderDiscards(counts);
   } else {
     statusNum.textContent = sh<0 ? '-' : (sh+'단계');
     statusLabel.textContent = len<base
@@ -1489,11 +1574,34 @@ function render(){
       : (len===base+1 ? `텐파이까지 ${sh}번 더 패를 바꿔야 해요` : `텐파이까지 ${sh}번 더 패를 바꿔야 해요 (교환 횟수 기준)`);
     candCard.style.display='block';
     renderCandidates(counts, len);
-    if(len===base+1){
+    if(len===base+1 || len===base){ // 뽑은 뒤뿐 아니라 대기 상태에서도 버릴 패를 알려줘요
       discardCard.style.display='block';
       renderDiscards(counts);
     }
   }
+}
+
+function ghostTileEl(code){ const t = tileEl(code); t.classList.add('ghost'); return t; }
+// held: 지금 들고 있는 패, need: 아직 없는 패(흐리게) → 예: 🀅🀅 + 🀅
+function yakuVisualEl(vis){
+  const wrap = document.createElement('div');
+  wrap.className = 'yv';
+  if(vis.label){
+    const l = document.createElement('div'); l.className='yv-label'; l.textContent = vis.label; wrap.appendChild(l);
+  }
+  const row = document.createElement('div'); row.className='yv-row';
+  vis.groups.forEach(g=>{
+    const grp = document.createElement('div'); grp.className='yv-group';
+    g.held.forEach(c=> grp.appendChild(tileEl(c)));
+    if(g.need && g.need.length){
+      const plus = document.createElement('span'); plus.className='yv-plus'; plus.textContent='+';
+      grp.appendChild(plus);
+      g.need.forEach(c=> grp.appendChild(ghostTileEl(c)));
+    }
+    row.appendChild(grp);
+  });
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function renderCandidates(counts, len){
@@ -1503,7 +1611,13 @@ function renderCandidates(counts, len){
   list.forEach(y=>{
     const row = document.createElement('div');
     row.className='yaku-item';
-    row.innerHTML = `<div><div class="yaku-name">${y.name}</div><div class="yaku-desc">${y.desc}</div></div>`;
+    const left = document.createElement('div');
+    left.style.flex='1'; left.style.minWidth='0';
+    const nm = document.createElement('div'); nm.className='yaku-name'; nm.textContent = y.name;
+    const ds = document.createElement('div'); ds.className='yaku-desc'; ds.textContent = y.desc;
+    left.appendChild(nm); left.appendChild(ds);
+    if(y.visual) left.appendChild(yakuVisualEl(y.visual));
+    row.appendChild(left);
     el.appendChild(row);
   });
   if(state.riichi){
@@ -1514,47 +1628,301 @@ function renderCandidates(counts, len){
   }
 }
 
-function renderDiscards(counts){
-  const k = state.melds.length;
-  const extra = meldVisibleCounts(); // 울음 세트로 이미 소진된 패
-  const candidates = [];
+/* ===================== 버릴 패 분석 (초보자용) ===================== */
+function tileShort(i){ return i>=27 ? HONOR_NAMES[i-27] : (i%9+1)+(suitOf(i)==='m'?'만':suitOf(i)==='p'?'통':'삭'); }
+function namesOf(tiles, max){
+  const n = tiles.map(tileShort);
+  return n.length>max ? n.slice(0,max).join('·')+` 외 ${n.length-max}종` : n.join('·');
+}
+function codesFromCounts(counts){
+  const out=[]; for(let i=0;i<34;i++) for(let n=0;n<counts[i];n++) out.push(indexToCode(i)); return out;
+}
+function isYakuhaiTile(i){
+  return i>=31 || (i>=27 && ((i-27+1)===state.roundWind || (i-27+1)===state.seatWind));
+}
+
+// 뽑으면 샹텐이 줄어드는 패(유효패)와 남은 장수. 텐파이일 때는 대기패와 같아요
+function effectiveTiles(counts, k, extra, sh){
+  const out=[];
   for(let t=0;t<34;t++){
-    if(counts[t]===0) continue;
-    counts[t]--;
-    const sh13 = overallShanten(counts, k);
-    let ukeireTypes=0, ukeireTiles=0, waitList=[];
-    if(sh13===0){
-      waitList = waitingTiles(counts, k, extra);
-      ukeireTypes = waitList.length;
-      ukeireTiles = waitList.reduce((a,w)=>a+(4-counts[w]-extra[w]),0);
-    }
+    const used = counts[t] + extra[t];
+    if(used>=4) continue;
     counts[t]++;
-    candidates.push({ tile:t, sh13, ukeireTypes, ukeireTiles, waitList });
+    const s2 = overallShanten(counts, k);
+    counts[t]--;
+    if(s2<sh) out.push({ t, remain: 4-used });
   }
-  candidates.sort((a,b)=> a.sh13-b.sh13 || b.ukeireTiles-a.ukeireTiles );
-  const top = candidates.slice(0,5);
-  const el = document.getElementById('discardList');
-  el.innerHTML='';
-  top.forEach((c,i)=>{
-    const row = document.createElement('div');
-    row.className='discard-pick';
-    const rank = document.createElement('div'); rank.className='rank'; rank.textContent=(i+1);
-    const tileWrap = tileEl(indexToCode(c.tile), { small:true });
-    const info = document.createElement('div'); info.className='info';
-    const shTxt = c.sh13===-1?'화료':(c.sh13===0?'텐파이':c.sh13+'단계 남음');
-    info.innerHTML = `<b>${tileKor(c.tile)}</b> 버리기 → <b>${shTxt}</b>` + (c.sh13===0?`<br>대기 ${c.ukeireTypes}종 · 남은 ${c.ukeireTiles}장`:'');
-    row.appendChild(rank); row.appendChild(tileWrap); row.appendChild(info);
-    el.appendChild(row);
-    if(c.sh13===0 && c.waitList.length>0){
-      const waitRow = document.createElement('div');
-      waitRow.className='wait-grid';
-      waitRow.style.margin='-4px 0 8px 34px';
-      c.waitList.sort((a,b)=>a-b).forEach(w=>{
-        waitRow.appendChild(tileEl(indexToCode(w), { small:true }));
-      });
-      el.appendChild(waitRow);
-    }
+  return out;
+}
+
+// 이 패가 손패에서 어떤 역할인지 쉬운 말로 설명 (tier 0=버리기 좋음, 1=보통, 2=버리면 손해)
+function discardReason(counts, x){
+  const c = counts[x], suited = x<27, pos = x%9;
+  const has = d => suited && pos+d>=0 && pos+d<=8 && counts[x+d]>0;
+  const near = has(-1)||has(1), gap = has(-2)||has(2);
+  if(c>=3) return { tier:2, text:'같은 패를 3장 모은 "삼각"이에요. 이미 완성된 묶음이라 버리면 손해예요.' };
+  if(c===2){
+    if(isYakuhaiTile(x)) return { tier:2, text:'역패 2장(짝)이에요. 한 장만 더 모으면 역이 되니 보통 남겨둬요.' };
+    return { tier:1, text:'같은 패 2장(짝)이에요. 머리(2장 세트)나 삼각으로 쓸 수 있어서, 한 장을 버리면 짝이 깨져요.' };
+  }
+  if(x>=27){
+    if(isYakuhaiTile(x)) return { tier:1, text:'역패 1장이에요. 한 장 더 오면 짝이 되지만, 늦으면 버려도 돼요.' };
+    return { tier:0, text:'역이 안 되는 자패 1장이에요. 다른 패와 이어 붙일 수 없어서 일찍 버리기 좋아요.' };
+  }
+  if(!near && !gap){
+    return { tier:0, text: isTerminal(x) ? '끝자락(1·9) 패인데 주변에 이어질 패도 없어요. 가장 먼저 버리기 좋아요.' : '주변 숫자와 이어지지 않는 외톨이 패예요. 가장 먼저 버리기 좋아요.' };
+  }
+  if(isTerminal(x)) return { tier:1, text:'끝자락(1·9) 패라 이어 붙일 방법이 적어요. 그래도 옆 패와 이어져 있어서 신중히 골라요.' };
+  if(near) return { tier:1, text:'바로 옆 숫자와 이어진 패(연결)예요. 버리면 연결이 끊겨요.' };
+  return { tier:1, text:'한 칸 띄운 숫자와 이어진 패(간짱 후보)예요. 연결은 약하지만 완성 가능성은 있어요.' };
+}
+
+function yakuKeyMap(counts){
+  const m = new Map();
+  candidateYaku(counts, 1).forEach(y=>{ if(y.key && y.key!=='riichi') m.set(y.key, { name:y.shortName||y.name, partial:!!y.partial }); });
+  return m;
+}
+
+// 텐파이가 되는 버림일 때, 대기패마다 예상 판수를 계산해서 범위로 돌려줘요
+function hanRangeForWaits(counts13, waits){
+  const base = codesFromCounts(counts13);
+  let min=Infinity, max=0, yakuman=false, noYaku=0, total=0;
+  waits.forEach(w=>{
+    const res = computeYaku([...base, indexToCode(w.t)], buildScoreCtx(w.t));
+    if(res.invalid) return;
+    total++;
+    if(res.yakuman){ yakuman=true; min=Math.min(min,13); max=Math.max(max,13); return; }
+    if(res.han===0 || res.hasYaku===false){ noYaku++; return; }
+    min=Math.min(min,res.han); max=Math.max(max,res.han);
   });
+  if(total===0) return null;
+  if(min===Infinity){ min=0; max=0; }
+  return { min, max, yakuman, noYaku, total, riichiBonus: isMenzen() && !state.riichi };
+}
+
+// 14장(뽑은 뒤)에서 버릴 수 있는 모든 패(종류별)를 평가해요
+function evaluateDiscards(counts14){
+  const k = state.melds.length, extra = meldVisibleCounts();
+  const before = yakuKeyMap(counts14);
+  const out = [];
+  for(let x=0;x<34;x++){
+    if(counts14[x]===0) continue;
+    const reason = discardReason(counts14, x);
+    const held = counts14[x];
+    counts14[x]--;
+    const sh = overallShanten(counts14, k);
+    const eff = effectiveTiles(counts14, k, extra, sh);
+    const effTiles = eff.reduce((a,e)=>a+e.remain,0);
+    const han = sh===0 ? hanRangeForWaits(counts14, eff) : null;
+    const after = yakuKeyMap(counts14);
+    counts14[x]++;
+    const gained=[], lost=[];
+    after.forEach((v,key)=>{ const b=before.get(key); if(!b || (b.partial && !v.partial)) gained.push(v.name); });
+    before.forEach((v,key)=>{ const a=after.get(key); if(!a || (!v.partial && a.partial)) lost.push(v.name); });
+    out.push({ tile:x, held, sh, eff, effTiles, han, reason, gained, lost, yakuAfter:[...after.values()].map(v=>v.name) });
+  }
+  return out;
+}
+const hanScoreOf = c => c.han ? (c.han.yakuman ? 13 : c.han.max) : 0;
+// 순위: 샹텐이 낮을수록 → 유효패(대기)가 많을수록 → 버려도 아까운 정도가 낮을수록 → 예상 판수가 높을수록. 결과가 같으면 공동 순위예요
+function rankDiscards(cands){
+  cands.sort((a,b)=> a.sh-b.sh || b.effTiles-a.effTiles || a.reason.tier-b.reason.tier || hanScoreOf(b)-hanScoreOf(a) || a.tile-b.tile);
+  let rank=0, prev='';
+  cands.forEach((c,i)=>{
+    const key=[c.sh,c.effTiles,c.reason.tier,hanScoreOf(c)].join('/');
+    if(key!==prev){ rank=i+1; prev=key; }
+    c.rank = rank;
+  });
+  cands.forEach(c=>{ c.tie = cands.filter(o=>o.rank===c.rank).length>1; });
+  return cands;
+}
+// 상황에 따라 1~10가지: 가장 좋은 샹텐이면서 유효패가 최고의 절반 이상인 것만 (최대 10)
+function selectShown(cands){
+  const best = cands[0];
+  const shown = cands.filter(c=> c.sh===best.sh && (best.effTiles===0 || c.effTiles>=Math.ceil(best.effTiles*0.5))).slice(0,10);
+  return { shown, hidden: cands.length-shown.length };
+}
+
+// 대기 상태(버리기 전)에서: 다음에 어떤 패를 뽑든 "어느 패를 버리게 될지" 미리 계산해요
+let _waitEvalCache = { key:null, val:null };
+function evaluateWaitingDiscards(counts13){
+  const k = state.melds.length, extra = meldVisibleCounts();
+  const key = counts13.join(',')+'|'+extra.join(',')+'|'+k;
+  if(_waitEvalCache.key===key) return _waitEvalCache.val;
+  const sh = overallShanten(counts13, k);
+  const votes = new Array(34).fill(0);
+  const examples = Array.from({length:34},()=>[]);
+  let W=0, improveW=0;
+  for(let d=0;d<34;d++){
+    const remain = 4-(counts13[d]+extra[d]);
+    if(remain<=0) continue;
+    counts13[d]++;
+    if(overallShanten(counts13,k)===-1){ counts13[d]--; continue; } // 화료가 되는 패는 제외
+    W += remain;
+    let bestSh=Infinity, list=[];
+    for(let x=0;x<34;x++){
+      if(counts13[x]===0) continue;
+      counts13[x]--;
+      const s2 = overallShanten(counts13,k);
+      counts13[x]++;
+      if(s2<bestSh){ bestSh=s2; list=[x]; } else if(s2===bestSh) list.push(x);
+    }
+    let bestEff=-1, best=[];
+    list.forEach(x=>{
+      counts13[x]--;
+      const eff = effectiveTiles(counts13,k,extra,bestSh).reduce((a,e)=>a+e.remain,0);
+      counts13[x]++;
+      if(eff>bestEff){ bestEff=eff; best=[x]; } else if(eff===bestEff) best.push(x);
+    });
+    counts13[d]--;
+    if(best.includes(d)) continue; // 뽑은 패를 그대로 버리면 되는 경우
+    improveW += remain;
+    best.forEach(x=>{ votes[x]+=remain/best.length; examples[x].push({ d, remain }); });
+  }
+  const maxV = Math.max(0,...votes);
+  let items = [];
+  for(let x=0;x<34;x++){
+    if(votes[x]>0 && votes[x]>=maxV*0.2){
+      items.push({ tile:x, votes:votes[x], pct: improveW ? Math.round(votes[x]/improveW*100) : 0,
+        examples: examples[x].sort((a,b)=>b.remain-a.remain).map(e=>e.d), reason: discardReason(counts13,x), held:counts13[x] });
+    }
+  }
+  items.sort((a,b)=> b.votes-a.votes || a.tile-b.tile);
+  items = items.slice(0,10);
+  let rank=0, prev=null;
+  items.forEach((it,i)=>{ const key=Math.round(it.votes*100); if(key!==prev){ rank=i+1; prev=key; } it.rank=rank; });
+  items.forEach(it=>{ it.tie = items.filter(o=>o.rank===it.rank).length>1; });
+  const val = { sh, items, W, improveW, tsumogiriPct: W ? Math.round((W-improveW)/W*100) : 0 };
+  _waitEvalCache = { key, val };
+  return val;
+}
+
+function speedLabel(c){
+  const t = c.effTiles;
+  if(c.sh===0) return t>=8 ? '빠름' : t>=4 ? '보통' : '느림';
+  return t>=20 ? '빠름' : t>=10 ? '보통' : '느림';
+}
+function scoreText(c){
+  if(c.han){
+    const h = c.han;
+    if(h.noYaku===h.total) return '아직 역이 없어요' + (h.riichiBonus ? ' — 멘젠이니 리치를 하면 1판이 생겨요' : ' — 다른 역이 필요해요');
+    let t = h.yakuman ? '역만!' : (h.min===h.max ? `${h.max}판` : `${h.min}~${h.max}판`);
+    if(h.noYaku>0) t += ' (일부 대기패는 역이 없어서 그 패로는 화료할 수 없어요)';
+    if(h.riichiBonus) t += ' · 멘젠이라 리치하면 +1판';
+    return t;
+  }
+  const names = c.yakuAfter.slice(0,3).join(', ');
+  if(names) return `아직 정해지지 않았어요 · 노릴 수 있는 역: ${names}`;
+  return '아직 정해진 역이 없어요' + (isMenzen() ? ' (텐파이가 되면 리치로 1판을 만들 수 있어요)' : '');
+}
+function dcLine(row, k, html){
+  const d = document.createElement('div'); d.className='dc-line';
+  d.innerHTML = `<span class="dc-k">${k}</span>${html}`;
+  row.appendChild(d);
+}
+function discardRowEl(c){
+  const row = document.createElement('div'); row.className='dc';
+  const head = document.createElement('div'); head.className='dc-head';
+  const rank = document.createElement('div'); rank.className='dc-rank'+(c.rank===1?' top':'');
+  rank.textContent = (c.tie?'공동 ':'')+c.rank+'위';
+  head.appendChild(rank);
+  head.appendChild(tileEl(indexToCode(c.tile)));
+  const sp = speedLabel(c);
+  const title = document.createElement('div'); title.className='dc-title';
+  title.innerHTML = `<b>${tileShort(c.tile)}</b> 버리기` + (c.held>1 ? ` <span class="dc-sub">(손패에 ${c.held}장)</span>` : '') +
+    `<br><span class="chip ${c.sh===0?'good':''}">${c.sh===0?'바로 텐파이':c.sh+'단계 남음'}</span> ` +
+    `<span class="chip ${sp==='빠름'?'good':sp==='느림'?'warn':''}">속도 ${sp}</span>` +
+    (c.rank===1 ? ' <span class="chip good">추천</span>' : '');
+  head.appendChild(title);
+  row.appendChild(head);
+  dcLine(row, '속도', c.sh===0
+    ? `대기 ${c.eff.length}종 ${c.effTiles}장 (${namesOf(c.eff.map(e=>e.t).sort((a,b)=>a-b),6)})`
+    : `텐파이까지 ${c.sh}단계 · 도움이 되는 패(유효패) ${c.eff.length}종 ${c.effTiles}장`);
+  dcLine(row, '점수', scoreText(c));
+  dcLine(row, '이 패는', c.reason.text);
+  if(c.gained.length || c.lost.length){
+    let t='';
+    if(c.gained.length) t += `<span class="plus">+ ${c.gained.join(', ')}</span> 노릴 수 있게 돼요`;
+    if(c.gained.length && c.lost.length) t += ' · ';
+    if(c.lost.length) t += `<span class="minus">− ${c.lost.join(', ')}</span> 가능성이 줄어요`;
+    dcLine(row, '역 가능성', t);
+  }
+  return row;
+}
+function waitDiscardRowEl(it, tenpai){
+  const row = document.createElement('div'); row.className='dc';
+  const head = document.createElement('div'); head.className='dc-head';
+  const rank = document.createElement('div'); rank.className='dc-rank'+(it.rank===1?' top':'');
+  rank.textContent = (it.tie?'공동 ':'')+it.rank+'위';
+  head.appendChild(rank);
+  head.appendChild(tileEl(indexToCode(it.tile)));
+  const title = document.createElement('div'); title.className='dc-title';
+  title.innerHTML = `<b>${tileShort(it.tile)}</b> 버리게 될 가능성` + (it.held>1 ? ` <span class="dc-sub">(손패에 ${it.held}장)</span>` : '') +
+    `<br><span class="chip ${it.rank===1?'good':''}">도움 되는 패를 뽑았을 때의 약 ${it.pct}%</span>`;
+  head.appendChild(title);
+  row.appendChild(head);
+  dcLine(row, '이럴 때', `${namesOf(it.examples.slice(0,5),5)}을(를) 뽑으면 ${tenpai ? '더 좋은 대기로 바꾸려고 ' : ''}이 패를 버리게 돼요`);
+  dcLine(row, '이 패는', it.reason.text);
+  return row;
+}
+
+function renderDiscards(counts){
+  const list = document.getElementById('discardList');
+  const intro = document.getElementById('discardIntro');
+  const tip = document.getElementById('discardTip');
+  const foot = document.getElementById('discardFoot');
+  list.innerHTML=''; tip.innerHTML=''; foot.textContent='';
+  if(state.riichi){
+    intro.textContent = '리치 중에는 손패를 바꿀 수 없어요. 뽑은 패가 대기패가 아니면 그대로 버리면 돼요.';
+    return;
+  }
+  if(state.hand.length===handMax()){
+    // ── 뽑은 뒤(버릴 차례) ──
+    const cands = rankDiscards(evaluateDiscards(counts));
+    if(cands.length===0){ intro.textContent=''; return; }
+    const { shown, hidden } = selectShown(cands);
+    const best = shown[0];
+    intro.textContent = `방금 뽑은 패까지 ${state.hand.length}장 중에서 버릴 패예요. 순위가 높을수록 추천이고, 상황에 맞게 ${shown.length}가지만 보여줘요.`;
+    if(best.sh===0){
+      const bh = hanScoreOf(best);
+      const alt = shown.filter(c=> c!==best && c.han && hanScoreOf(c)>bh && c.effTiles>=best.effTiles*0.5)
+                       .sort((a,b)=> hanScoreOf(b)-hanScoreOf(a) || b.effTiles-a.effTiles)[0];
+      if(alt){
+        const t = document.createElement('div'); t.className='dc-tip';
+        t.innerHTML = `<b>빠른 화료</b>는 <b>${tileShort(best.tile)}</b> 버리기(대기 ${best.effTiles}장), ` +
+          `<b>더 높은 점수</b>를 노린다면 <b>${tileShort(alt.tile)}</b> 버리기(최대 ${alt.han.yakuman?'역만':alt.han.max+'판'}, 대기 ${alt.effTiles}장)예요.`;
+        tip.appendChild(t);
+      }
+    }
+    shown.forEach(c=>{
+      const row = discardRowEl(c);
+      if(c===best){
+        const second = shown.find(o=>o.rank>best.rank);
+        let why;
+        if(second && best.effTiles>second.effTiles) why = `${tileShort(second.tile)}보다 ${best.sh===0?'대기':'도움이 되는 패'}가 ${best.effTiles-second.effTiles}장 더 많아요`;
+        else if(best.tie) why = '비슷한 선택지가 여러 개예요 — 위에서부터 편한 걸 골라도 돼요';
+        else why = '이 패를 버려도 손해가 거의 없는 선택이에요';
+        dcLine(row, '왜 1위?', why);
+      }
+      list.appendChild(row);
+    });
+    if(hidden>0) foot.textContent = `나머지 ${hidden}가지는 버리면 텐파이/완성이 멀어지거나 도움이 되는 패가 많이 줄어서 보여주지 않았어요.`;
+  } else {
+    // ── 대기 상태(버리기 전) ──
+    const r = evaluateWaitingDiscards(counts);
+    const tenpai = (r.sh===0);
+    intro.textContent = tenpai
+      ? '텐파이예요! 뽑은 패가 대기패가 아니면 대부분 그대로 버리면 돼요(대기 유지). 아래는 이런 패를 뽑으면 더 좋은 대기로 바꾸려고 버리게 되는 패예요.'
+      : '지금은 패를 뽑기 전(대기 상태)이에요. 도움이 되는 패를 뽑으면 아래 패 중에서 버리게 돼요. 도움이 안 되는 패를 뽑으면 그 패를 그대로 버리면 돼요.';
+    if(r.items.length===0){
+      const m = document.createElement('div'); m.className='empty-note';
+      m.textContent = '지금은 어떤 패를 뽑아도 뽑은 패를 그대로 버리면 충분해요 (바꿀 만한 패가 없어요).';
+      list.appendChild(m);
+    } else {
+      r.items.forEach(it=> list.appendChild(waitDiscardRowEl(it, tenpai)));
+    }
+    foot.textContent = `전체 쯔모 중 약 ${r.tsumogiriPct}%는 뽑은 패를 그대로 버려도 충분해요. 남은 패 수는 내 손패·울음 세트에 보이는 패만 기준이에요 (상대가 버린 패는 알 수 없어요).`;
+  }
 }
 
 function renderWaits(counts13){
@@ -1582,7 +1950,7 @@ function renderWaits(counts13){
     preview.style.fontWeight = '700';
     if(res.invalid){
       preview.textContent = '—';
-    } else if(res.han===0){
+    } else if(res.han===0 || res.hasYaku===false){
       preview.textContent = '역 없음';
       preview.style.color = 'var(--text-faint)';
       preview.style.fontWeight = '400';
@@ -1664,7 +2032,7 @@ function renderScore(){
     yakuEl.innerHTML = '<div class="empty-note">14장이 완성된 형태(4묶음+1쌍 또는 치토이츠)가 아니에요. 패 구성을 확인해주세요.</div>';
     return;
   }
-  if(res.list.length===0){
+  if(res.list.length===0 || res.hasYaku===false){
     yakuEl.innerHTML = '<div class="warn-box">역이 없어서 이 상태로는 화료할 수 없어요. 리치를 하거나 다른 역을 노려보세요.</div>';
     return;
   }
@@ -1724,6 +2092,7 @@ function renderScore(){
 let pickerMode = null; // 'edit' | 'add' | 'meldAdd'
 let pickerEditIdx = null;
 let meldTemp = [];
+let meldTempSrc = []; // meldTemp와 같은 길이: 'hand'(손패에서 옮겨온 패) | 'grid'(아래 목록에서 고른 패)
 
 function openPicker(mode, idx){
   pickerMode = mode; pickerEditIdx = idx;
@@ -1731,12 +2100,14 @@ function openPicker(mode, idx){
   document.getElementById('pickerTitle').textContent = titles[mode] || '패 선택';
   document.getElementById('pickerRemove').style.display = mode==='edit' ? 'inline-flex' : 'none';
   document.getElementById('meldPreviewWrap').style.display = mode==='meldAdd' ? 'block' : 'none';
-  if(mode==='meldAdd'){ meldTemp = []; renderMeldPreview(); }
+  document.getElementById('meldHandWrap').style.display = mode==='meldAdd' ? 'block' : 'none';
+  if(mode==='meldAdd'){ meldTemp = []; meldTempSrc = []; renderMeldHand(); renderMeldPreview(); }
   renderPickerGrid();
   document.getElementById('pickerOverlay').classList.add('show');
 }
 function closePicker(){
   document.getElementById('pickerOverlay').classList.remove('show');
+  document.getElementById('meldHandWrap').style.display='none';
   ['meldConfirmChi','meldConfirmPon','meldConfirmKan','meldConfirmAnkan','meldConfirmKakan'].forEach(id=>{
     document.getElementById(id).style.display='none';
   });
@@ -1751,11 +2122,45 @@ function allUsedCounts(){
   return c;
 }
 
+// 현재 손패를 창 위쪽에 보여줘요 (패를 탭하면 손패에서 빠져서 이 세트로 옮겨져요)
+function renderMeldHand(){
+  const row = document.getElementById('meldHandRow');
+  row.innerHTML='';
+  state.hand.forEach((code, i)=>{
+    row.appendChild(tileEl(code, { onClick: ()=> pickHandTileForMeld(i) }));
+  });
+}
+function pickHandTileForMeld(i){
+  if(meldTemp.length>=4) return;
+  const code = state.hand.splice(i,1)[0];
+  state.winTile = null;
+  meldTemp.push(code); meldTempSrc.push('hand');
+  renderMeldHand(); renderMeldPreview(); renderPickerGrid();
+}
+function removeMeldTemp(i){
+  const code = meldTemp[i], src = meldTempSrc[i];
+  meldTemp.splice(i,1); meldTempSrc.splice(i,1);
+  if(src==='hand'){ state.hand.push(code); sortHand(); } // 손패에서 가져온 패는 손패로 되돌려요
+  renderMeldHand(); renderMeldPreview(); renderPickerGrid();
+}
+// 취소할 때: 손패에서 옮겨온 패를 모두 손패로 되돌려요
+function returnMeldTempToHand(){
+  meldTemp.forEach((code,i)=>{ if(meldTempSrc[i]==='hand') state.hand.push(code); });
+  meldTemp = []; meldTempSrc = [];
+  sortHand();
+}
+function dismissPicker(){
+  const wasMeld = (pickerMode==='meldAdd');
+  if(wasMeld) returnMeldTempToHand();
+  closePicker();
+  if(wasMeld) render();
+}
+
 function renderMeldPreview(){
   const row = document.getElementById('meldPreviewRow');
   row.innerHTML='';
   meldTemp.forEach((code, i)=>{
-    row.appendChild(tileEl(code, { onClick: ()=>{ meldTemp.splice(i,1); renderMeldPreview(); renderPickerGrid(); } }));
+    row.appendChild(tileEl(code, { onClick: ()=> removeMeldTemp(i) }));
   });
   const chiBtn = document.getElementById('meldConfirmChi');
   const ponBtn = document.getElementById('meldConfirmPon');
@@ -1805,7 +2210,7 @@ function renderPickerGrid(){
 function chooseTile(code){
   if(pickerMode==='meldAdd'){
     if(meldTemp.length>=4) return;
-    meldTemp.push(code);
+    meldTemp.push(code); meldTempSrc.push('grid');
     renderMeldPreview();
     renderPickerGrid();
     return;
@@ -1824,6 +2229,7 @@ function chooseTile(code){
 
 function confirmMeld(type, concealed){
   state.melds.push({ tiles:[...meldTemp], type, concealed });
+  meldTemp = []; meldTempSrc = []; // 확정했으니 손패로 되돌리지 않아요
   closePicker();
   render();
 }
@@ -1833,7 +2239,7 @@ document.getElementById('meldConfirmKan').addEventListener('click', ()=>confirmM
 document.getElementById('meldConfirmAnkan').addEventListener('click', ()=>confirmMeld('kan', true));
 document.getElementById('meldConfirmKakan').addEventListener('click', function(){
   const idx = Number(this.dataset.ponIdx);
-  if(upgradePonToKan(idx, 'manual')){ closePicker(); render(); }
+  if(upgradePonToKan(idx, 'manual')){ meldTemp = []; meldTempSrc = []; closePicker(); render(); }
 });
 document.getElementById('btnAddMeld').addEventListener('click', ()=>openPicker('meldAdd', null));
 document.getElementById('btnClearMelds').addEventListener('click', ()=>{
@@ -1868,8 +2274,8 @@ document.getElementById('poolDiscard').addEventListener('click', ()=>{
   render();
 });
 
-document.getElementById('pickerClose').addEventListener('click', closePicker);
-document.getElementById('pickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='pickerOverlay') closePicker(); });
+document.getElementById('pickerClose').addEventListener('click', dismissPicker);
+document.getElementById('pickerOverlay').addEventListener('click', (e)=>{ if(e.target.id==='pickerOverlay') dismissPicker(); });
 document.getElementById('pickerRemove').addEventListener('click', ()=>{
   if(pickerEditIdx!=null){ state.hand.splice(pickerEditIdx,1); }
   closePicker();
@@ -1883,6 +2289,34 @@ document.getElementById('riichiSwitch').addEventListener('click', function(){
   this.classList.toggle('on', state.riichi);
   render();
 });
+/* ───── 숫자 입력: 직접 입력 + [▼][▲] 버튼 ───── */
+const NUM_FIELDS = {
+  honbaInput:{ key:'honba',    min:0, max:20, pre:'honba' },
+  doraInput: { key:'dora',     min:0, max:10, pre:'dora'  },
+  kanInput:  { key:'kanCount', min:0, max:4,  pre:'kan'   }
+};
+function clampField(id, raw){
+  const f = NUM_FIELDS[id];
+  let v = Math.trunc(Number(raw));
+  if(!Number.isFinite(v)) v = 0;
+  return Math.min(f.max, Math.max(f.min, v));
+}
+function setNumField(id, raw, writeBack){
+  const f = NUM_FIELDS[id];
+  const v = clampField(id, raw);
+  state[f.key] = v;
+  const el = document.getElementById(id);
+  // 타이핑 중에는 입력칸을 건드리지 않고, 범위를 벗어났거나 버튼으로 바꿀 때만 값을 써 넣어요
+  if(writeBack || (el.value!=='' && String(v)!==String(Number(el.value)))) el.value = String(v);
+  render();
+}
+Object.keys(NUM_FIELDS).forEach(id=>{
+  const f = NUM_FIELDS[id];
+  document.getElementById(id).addEventListener('input', (e)=> setNumField(id, e.target.value, false));
+  document.getElementById(f.pre+'Down').addEventListener('click', ()=> setNumField(id, state[f.key]-1, true));
+  document.getElementById(f.pre+'Up').addEventListener('click', ()=> setNumField(id, state[f.key]+1, true));
+});
+
 document.getElementById('menzenSwitch').addEventListener('click', function(){
   if(state.melds.some(meldIsOpen)) return; // 열린 울음이 있으면 멘젠은 자동으로 꺼져 있어요
   state.menzen = !state.menzen;
@@ -1898,10 +2332,6 @@ document.getElementById('playerCountSeg').addEventListener('click', (e)=>{
   if(!btn) return;
   state.playerCount = Number(btn.dataset.v);
   [...document.getElementById('playerCountSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
-  render();
-});
-document.getElementById('honbaInput').addEventListener('input', (e)=>{
-  state.honba = Number(e.target.value)||0;
   render();
 });
 document.getElementById('roundWindSeg').addEventListener('click', (e)=>{
@@ -1923,14 +2353,6 @@ document.getElementById('tsumoRonSeg').addEventListener('click', (e)=>{
   if(!btn) return;
   state.method = btn.dataset.v;
   [...document.getElementById('tsumoRonSeg').children].forEach(b=>b.classList.toggle('active', b===btn));
-  render();
-});
-document.getElementById('kanInput').addEventListener('input', (e)=>{
-  state.kanCount = Number(e.target.value)||0;
-  render();
-});
-document.getElementById('doraInput').addEventListener('input', (e)=>{
-  state.dora = Number(e.target.value)||0;
   render();
 });
 
