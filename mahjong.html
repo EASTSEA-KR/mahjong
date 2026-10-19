@@ -9,8 +9,11 @@
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
 <style>
   :root{
-    --tile-font:58px;        /* 모든 패 글자 크기의 기본값 */
-    --tile-font-picker:40px; /* 패 고르기 창(패 추가/세트 수동 추가)의 전체 패 목록 */
+    --tile-font-num:58;                                  /* 모든 패 글자 크기의 기본값(px) */
+    --tile-font-picker-num:40;                           /* 패 고르기 창(패 추가/세트 수동 추가)의 전체 패 목록(px) */
+    --tile-font: calc(var(--tile-font-num) * 1px);
+    --tile-font-picker: calc(var(--tile-font-picker-num) * 1px);
+    --sw:0; --sh:0;                                      /* 패 그림의 실제 크기(px) — 시작할 때 재서 채워요 */
     --bg:#12201a;
     --bg-weave: rgba(255,255,255,0.02);
     --panel:#1c2e25;
@@ -189,7 +192,20 @@
   .picker-suit-label{ font-size:11.5px; color: var(--text-faint); margin: 12px 0 6px; }
   .picker-grid{ display:grid; grid-template-columns: repeat(9, 1fr); gap:5px; }
   .picker-cell{ display:flex; flex-direction:column; align-items:center; gap:3px; }
-  .picker-cell .tile{ font-size:var(--tile-font-picker); }
+  .picker-cell .tile{ font-size:var(--tile-font-picker); --tile-scale: calc(var(--tile-font-picker-num) / var(--tile-font-num)); }
+  /* 패 그림(스프라이트): 글자 칸이 아니라 "그림이 실제로 차지하는 영역"에 상아색 배경을 맞춰요 (그림 + 2px 여백 + 1px 테두리) */
+  .tile.sprite{
+    --tw: calc(var(--sw) * var(--tile-scale, 1) * 1px);
+    --th: calc(var(--sh) * var(--tile-scale, 1) * 1px);
+    padding:0; font-size:0;
+    width: calc(var(--tw) + 6px); height: calc(var(--th) + 6px);
+    background-image: var(--sprite), linear-gradient(180deg, var(--ivory), var(--ivory-dim));
+    background-repeat:no-repeat, no-repeat;
+    background-position:center, center;
+    background-size: var(--tw) var(--th), 100% 100%;
+  }
+  .tile.ghost.sprite{ background-image: var(--sprite); background-size: var(--tw) var(--th); }
+  .tile-add.sprite-size{ padding:0; font-size:0; width: calc(var(--sw) * 1px + 6px); height: calc(var(--sh) * 1px + 6px); }
   .picker-cell .ct{ font-size:9.5px; color: var(--text-faint); }
   .picker-cell.disabled .tile{ opacity:0.25; cursor:default; }
 
@@ -1224,12 +1240,79 @@ function candidateYaku(handCounts, handLen){
 /* ===================== 렌더링 ===================== */
 function sortHand(){ state.hand.sort((a,b)=>tileIndex(a)-tileIndex(b)); }
 
+/* ===================== 패 그림(스프라이트) ===================== */
+// 글자 칸(줄 높이 기준)은 글꼴마다 그림보다 훨씬 커서, 그대로 두면 상아색 배경이 너무 크게 남아요.
+// 그래서 시작할 때 패를 캔버스에 그려 실제 그림의 경계를 재고, 그 영역만 잘라 배경에 맞춰 써요.
+const TILE_INK = { dark:'#241f16', blue:'#1d2a3d', green:'#1d3324', red:'#b3402a' };
+const tileSprites = { ready:false, w:0, h:0 };
+function tileInkColor(i){ return i>=31 ? TILE_INK.red : suitOf(i)==='p' ? TILE_INK.blue : suitOf(i)==='s' ? TILE_INK.green : TILE_INK.dark; }
+// 알파가 threshold보다 큰 픽셀을 모두 감싸는 경계 상자 (그림이 없으면 null)
+function inkBounds(data, w, h, thr){
+  thr = (thr===undefined) ? 40 : thr;
+  let x0=w, y0=h, x1=-1, y1=-1;
+  for(let y=0;y<h;y++){
+    const row = y*w*4;
+    for(let x=0;x<w;x++){
+      if(data[row+x*4+3]>thr){ if(x<x0) x0=x; if(x>x1) x1=x; if(y<y0) y0=y; if(y>y1) y1=y; }
+    }
+  }
+  return x1<0 ? null : { x:x0, y:y0, w:x1-x0+1, h:y1-y0+1 };
+}
+function buildTileSprites(){
+  try{
+    const base = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tile-font-num')) || 58;
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const px = Math.round(base*dpr);
+    const size = Math.ceil(px*1.8);
+    const fam = getComputedStyle(document.body).fontFamily || 'sans-serif';
+    const cv = document.createElement('canvas'); cv.width = size; cv.height = size;
+    const ctx = cv.getContext('2d', { willReadFrequently:true });
+    const list = [];
+    for(let i=0;i<34;i++) list.push({ key:indexToCode(i), ch:glyphOf(i), color:tileInkColor(i) });
+    list.push({ key:'back', ch:'🀫', color:TILE_INK.dark });
+    const draw = (g)=>{
+      ctx.clearRect(0,0,size,size);
+      ctx.font = `${px}px ${fam}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = g.color;
+      ctx.fillText(g.ch, size/2, size/2);
+    };
+    // 1) 모든 패의 실제 그림 크기를 재서 가장 큰 크기(W×H)로 통일해요 (종류마다 상자 크기가 달라지지 않게)
+    let W=0, H=0;
+    list.forEach(g=>{
+      draw(g);
+      const b = inkBounds(ctx.getImageData(0,0,size,size).data, size, size);
+      if(!b) throw new Error('패 그림을 그리지 못했어요: '+g.key);
+      g.b = b; W = Math.max(W,b.w); H = Math.max(H,b.h);
+    });
+    // 2) 각 패를 W×H 상자 한가운데에 잘라 붙여서 이미지로 만들어요
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const octx = out.getContext('2d');
+    let css = '';
+    list.forEach(g=>{
+      draw(g);
+      octx.clearRect(0,0,W,H);
+      octx.drawImage(cv, g.b.x, g.b.y, g.b.w, g.b.h, Math.floor((W-g.b.w)/2), Math.floor((H-g.b.h)/2), g.b.w, g.b.h);
+      css += `.tile.ts-${g.key}{--sprite:url("${out.toDataURL('image/png')}");}\n`;
+    });
+    const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+    tileSprites.w = W/dpr; tileSprites.h = H/dpr;
+    document.documentElement.style.setProperty('--sw', (W/dpr).toFixed(2));
+    document.documentElement.style.setProperty('--sh', (H/dpr).toFixed(2));
+    tileSprites.ready = true;
+    console.info(`패 그림 크기: ${(W/dpr).toFixed(1)}×${(H/dpr).toFixed(1)}px (글자 ${base}px 기준, 화면 배율 ${dpr}배)`);
+  } catch(err){
+    tileSprites.ready = false; // 실패하면 예전 방식(글자 그대로)으로 보여줘요
+    console.warn('패 그림 만들기 실패, 글자로 표시해요:', err && err.message);
+  }
+}
+
 function tileEl(code, opts){
   opts = opts||{};
   const idx = tileIndex(code);
   const div = document.createElement('div');
   div.className = 'tile' + (opts.small?' small':'') + (opts.large?' large':'') + (opts.meld?' meld':'') + (suitOf(idx)==='p'?' suit-p':'') + (suitOf(idx)==='s'?' suit-s':'') + (isHonor(idx)&&idx>=31?' suit-z-dragon':'');
   div.textContent = glyphOf(idx);
+  if(tileSprites.ready){ div.classList.add('sprite'); div.classList.add('ts-'+code); }
   div.title = tileKor(idx);
   if(opts.onClick) div.addEventListener('click', opts.onClick);
   if(opts.selected) div.classList.add('selected');
@@ -1245,7 +1328,7 @@ function renderHand(){
   });
   if(state.hand.length<handMax()){
     const add = document.createElement('div');
-    add.className='tile-add';
+    add.className='tile-add' + (tileSprites.ready ? ' sprite-size' : '');
     add.textContent='🀫'; // 보이지 않는 글자로 크기만 패와 맞추고, + 는 CSS로 그려요
     add.addEventListener('click', ()=>openPicker('add', null));
     row.appendChild(add);
@@ -1276,6 +1359,7 @@ function meldTileEl(code, opts){
     const d = document.createElement('div');
     d.className = 'tile meld' + (opts.selected?' selected':'');
     d.textContent = '🀫';
+    if(tileSprites.ready){ d.classList.add('sprite'); d.classList.add('ts-back'); }
     d.title = '뒷면(식별 불가)';
     if(opts.onClick) d.addEventListener('click', opts.onClick);
     return d;
@@ -3033,6 +3117,7 @@ function applyHandOnly(sc){
 })();
 
 /* ===================== 초기화 ===================== */
+buildTileSprites();
 loadModel();
 render();
 </script>
