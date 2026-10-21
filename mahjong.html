@@ -182,6 +182,8 @@
   /* modal */
   .overlay{ position:fixed; inset:0; background: rgba(6,10,8,0.72); display:none; align-items:flex-end; justify-content:center; z-index:50; }
   .overlay.show{ display:flex; }
+  /* 패 고르기 창 너비 = 카드 너비: .wrap은 최대 480px에 양옆 18px 여백이라 카드는 (화면폭-36px, 최대 444px) */
+  #pickerOverlay .modal{ width: calc(100% - 36px); max-width: 444px; overflow-x: hidden; }
   .modal{
     width:100%; max-width:480px; background: var(--panel); border-top-left-radius:16px; border-top-right-radius:16px;
     border: 1px solid var(--line); border-bottom:none; padding: 18px 16px 22px; max-height:80vh; overflow-y:auto;
@@ -190,9 +192,11 @@
   .modal-head h3{ font-family:'Noto Serif KR'; font-size:16px; margin:0; color: var(--ivory); }
   .modal-close{ background:none; border:none; color: var(--text-dim); font-size:22px; cursor:pointer; line-height:1; padding:4px; }
   .picker-suit-label{ font-size:11.5px; color: var(--text-faint); margin: 12px 0 6px; }
-  .picker-grid{ display:grid; grid-template-columns: repeat(9, 1fr); gap:5px; }
-  .picker-cell{ display:flex; flex-direction:column; align-items:center; gap:3px; }
-  .picker-cell .tile{ font-size:var(--tile-font-picker); --tile-scale: calc(var(--tile-font-picker-num) / var(--tile-font-num)); }
+  .picker-grid{ display:grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap:4px; }
+  .picker-cell{ display:flex; flex-direction:column; align-items:center; gap:3px; min-width:0; }
+  /* 패 고르기 창의 패 크기: 최대 40px, 칸이 좁으면 JS(fitPickerTiles)가 --tile-scale을 줄여서 9열이 창 안에 딱 들어가게 해요 */
+  #pickerBody{ --tile-scale: calc(var(--tile-font-picker-num) / var(--tile-font-num)); }
+  .picker-cell .tile{ font-size: calc(var(--tile-font-num) * var(--tile-scale) * 1px); }
   /* 패 그림(스프라이트): 글자 칸이 아니라 "그림이 실제로 차지하는 영역"에 상아색 배경을 맞춰요 (그림 + 2px 여백 + 1px 테두리) */
   .tile.sprite{
     --tw: calc(var(--sw) * var(--tile-scale, 1) * 1px);
@@ -2178,6 +2182,25 @@ let pickerEditIdx = null;
 let meldTemp = [];
 let meldTempSrc = []; // meldTemp와 같은 길이: 'hand'(손패에서 옮겨온 패) | 'grid'(아래 목록에서 고른 패)
 
+const PICKER_COLS = 9, PICKER_GAP = 4;
+// 패 고르기 창의 실제 폭을 재서, 9열이 딱 들어가도록 패 크기 배율(--tile-scale)을 정해요 (최대 40px 기준)
+function fitPickerTiles(){
+  const body = document.getElementById('pickerBody');
+  const w = body.clientWidth || 0;
+  if(!w) return; // 창이 안 보이면(폭 0) 계산하지 않아요
+  const cs = getComputedStyle(document.documentElement);
+  const baseNum = parseFloat(cs.getPropertyValue('--tile-font-num')) || 58;
+  const pickNum = parseFloat(cs.getPropertyValue('--tile-font-picker-num')) || 40;
+  const cell = (w - PICKER_GAP*(PICKER_COLS-1)) / PICKER_COLS;
+  const avail = cell - 6; // 패 상자 = 그림 + 여백 2px·테두리 1px (양쪽)
+  const spriteW = (tileSprites.ready && tileSprites.w>0) ? tileSprites.w : baseNum*0.8; // 그림 방식이 아니면 글자 폭을 0.8em으로 가정
+  const scale = Math.max(0.3, Math.min(pickNum/baseNum, avail/spriteW));
+  body.style.setProperty('--tile-scale', String(Math.floor(scale*10000)/10000)); // 내림해서 칸을 절대 넘지 않게 해요
+}
+if(window.addEventListener) window.addEventListener('resize', ()=>{
+  if(document.getElementById('pickerOverlay').classList.contains('show')) fitPickerTiles();
+});
+
 function openPicker(mode, idx){
   pickerMode = mode; pickerEditIdx = idx;
   const titles = { add:'패 추가', edit:'패 수정', meldAdd:'울음 세트에 넣을 패 선택' };
@@ -2188,6 +2211,7 @@ function openPicker(mode, idx){
   if(mode==='meldAdd'){ meldTemp = []; meldTempSrc = []; renderMeldHand(); renderMeldPreview(); }
   renderPickerGrid();
   document.getElementById('pickerOverlay').classList.add('show');
+  fitPickerTiles(); // 창이 보이게 된 다음에 폭을 재야 해요
 }
 function closePicker(){
   document.getElementById('pickerOverlay').classList.remove('show');
@@ -2289,6 +2313,7 @@ function renderPickerGrid(){
     }
     body.appendChild(grid);
   });
+  fitPickerTiles();
 }
 
 function chooseTile(code){
