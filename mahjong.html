@@ -272,13 +272,41 @@
     <p>손패 사진을 찍으면 노릴 역, 버릴 패, 화료 점수를 알려드려요.</p>
   </header>
 
+  <div class="card" id="gameCard">
+    <div class="card-title">게임 진행</div>
+    <div class="status-hero" style="padding:0 0 10px;"><div class="status-num" id="gameStatus" style="font-size:24px;"></div></div>
+    <div class="btn-row">
+      <button class="btn btn-red btn-sm" id="btnNewGame">새 게임</button>
+      <button class="btn btn-sm" id="btnRenchan">연장</button>
+      <button class="btn btn-primary btn-sm" id="btnNextTurn">턴넘기기</button>
+    </div>
+    <div class="count-note" id="gameNote" style="margin-top:10px;"></div>
+    <details class="gloss">
+      <summary>버튼 설명</summary>
+      <div class="count-note" style="line-height:1.9; margin-top:6px;">
+        <b>새 게임</b> : 손패·울음·바람·연장·마작 룰까지 모두 처음 상태로 돌려요.<br>
+        <b>연장</b> : 바람은 그대로 두고 연장을 +1 해요. 손패·울음 구역·도라·깡·리치·상황역(이번 판 정보)은 비워요.<br>
+        <b>턴넘기기</b> : 오야가 넘어가요. 자리 바람이 한 칸 앞으로(동→북→서→남→동) 가고, 내 자리가 다시 동이 되면 판 바람이 다음(동→남→서→북)으로 넘어가요. 연장은 0으로, 이번 판 정보는 비워요.<br>
+        국 번호는 내 자리 바람으로 계산해요 (동=1국, 북=2국, 서=3국, 남=4국).
+      </div>
+    </details>
+  </div>
+
   <div class="card">
-    <div class="card-title">마작 인원</div>
+    <div class="card-title">마작 룰</div>
+    <div class="switch-sub" style="margin-bottom:6px;">참가 인원</div>
     <div class="seg" id="playerCountSeg">
       <button data-v="3">3인</button>
       <button data-v="4" class="active">4인</button>
     </div>
     <div class="count-note" style="margin-top:8px;">점수 계산 시 인당 지불 금액에만 반영돼요. 패 구성(만수 1~9 전체 사용 등)은 4인 기준 그대로예요.</div>
+    <div class="switch-row" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div style="padding-right:10px;">
+        <div class="switch-label">2배역(더블 역만) 인정</div>
+        <div class="switch-sub">대사희 · 국사무쌍 13면 대기 · 사암각 단기 · 순정 구련보등(9면 대기)을 2배 역만으로 계산해요. 끄면 모두 보통 역만이에요.</div>
+      </div>
+      <div class="switch on" id="doubleYakumanSwitch"><div class="knob"></div></div>
+    </div>
   </div>
 
   <div class="card">
@@ -332,15 +360,6 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">인식 모델 상태</div>
-    <div class="switch-sub" style="margin-bottom:8px; line-height:1.6;">
-      이 앱은 <b>내 기기 안에서만</b> 패를 인식해요. 사진은 외부로 전송되지 않고, 인터넷 연결 없이도 동작해요.
-      같은 폴더에 <code>mahjong-tile-model.onnx</code> 파일이 함께 있어야 해요.
-    </div>
-    <div id="modelStatus" class="count-note">모델을 불러오는 중...</div>
   </div>
 
   <div class="card">
@@ -484,10 +503,20 @@
       </div>
 
       <div class="btn-row" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft);">
-        <button class="btn btn-ghost btn-sm" id="resetAll">전체 초기화 (새 판)</button>
+        <button class="btn btn-ghost btn-sm" id="resetAll">전체 초기화 (확인 없이 바로)</button>
       </div>
     </div>
   </details>
+
+  <div class="card">
+    <div class="card-title">인식 모델 상태</div>
+    <div class="switch-sub" style="margin-bottom:8px; line-height:1.6;">
+      이 앱은 <b>내 기기 안에서만</b> 패를 인식해요. 사진은 외부로 전송되지 않고, 인터넷 연결 없이도 동작해요.
+      같은 폴더에 <code>mahjong-tile-model.onnx</code> 파일이 함께 있어야 해요.
+    </div>
+    <div id="modelStatus" class="count-note">모델을 불러오는 중...</div>
+  </div>
+
 
   <footer>
     이 도구는 참고용 보조 계산기예요. 울음 구역(치·퐁·깡으로 뺀 패)은 아직 사진으로 자동 인식되지 않아서, 멘젠 여부·깡 개수는 직접 입력해주셔야 해요. 일발·천화·지화 등 사진만으로 알 수 없는 상황역도 직접 토글해주세요. 실제 판정은 함께하는 분들과 확인해주세요.<br><br>
@@ -501,13 +530,13 @@
       <h3 id="pickerTitle">패 선택</h3>
       <button class="modal-close" id="pickerClose">×</button>
     </div>
-    <div id="meldPreviewWrap" style="display:none; margin-bottom:12px;">
-      <div class="switch-sub" style="margin-bottom:6px;">선택한 패 (탭해서 뺄 수 있어요)</div>
-      <div class="hand-row" id="meldPreviewRow"></div>
-    </div>
     <div id="meldHandWrap" style="display:none; margin-bottom:12px;">
       <div class="switch-sub" style="margin-bottom:6px;">현재 손패 (탭하면 이 세트로 옮겨지고, 손패에서는 빠져요)</div>
       <div class="hand-row" id="meldHandRow"></div>
+    </div>
+    <div id="meldPreviewWrap" style="display:none; margin-bottom:12px;">
+      <div class="switch-sub" style="margin-bottom:6px;">선택한 패 (탭해서 뺄 수 있어요)</div>
+      <div class="hand-row" id="meldPreviewRow"></div>
     </div>
     <div id="pickerBody"></div>
     <div class="btn-row" style="margin-top:14px;">
@@ -621,6 +650,7 @@ const state = {
   winTile: null,      // tile code or null
   kanCount: 0,
   playerCount: 4,
+  doubleYakuman: true,   // 2배역(더블 역만) 인정
   honba: 0,
   melds: [],          // [{tiles:[code,...], type:'chi'|'pon'|'kan'|'unknown', concealed:bool}]
   meldPool: [],       // 울음구역에서 인식됐지만 아직 세트로 안 묶인 패 코드들
@@ -822,6 +852,7 @@ function computeYaku(hand, ctx){
   const fullCounts = counts.slice();
   meldTypeCounts(fixed).forEach((v,i)=>{ fullCounts[i]+=v; });
   const allCodes = [...hand, ...meldExpandCodes(fixed)];
+  const dbl = (ctx.doubleYakuman !== false); // 2배역(더블 역만) 인정 여부 (기본: 인정)
   const list = [];
 
   // 천화/지화는 사진만으로 알 수 없어 사용자가 직접 토글해요
@@ -829,7 +860,10 @@ function computeYaku(hand, ctx){
   else if(ctx.situational && ctx.situational.chiihou) list.push({name:'지화', han:13, yakuman:true});
 
   if(fixed.length===0 && isKokushi(counts)){
-    list.push({name:'국사무쌍', han:13, yakuman:true});
+    // 13면 대기(대기가 13종 전부였던 경우) = 화료패가 짝이 된 패 → 2배역 룰이 켜져 있으면 2배 역만
+    const pairIdx = counts.findIndex(c=>c===2);
+    const is13wait = dbl && ctx.winTileIdx!=null && ctx.winTileIdx===pairIdx;
+    list.push(is13wait ? {name:'국사무쌍 13면 대기', han:26, yakuman:true} : {name:'국사무쌍', han:13, yakuman:true});
     const han = list.reduce((a,y)=>a+y.han,0);
     return { list, han, yakuman:true, decomposition:null, chiitoi:false, hasYaku:true };
   }
@@ -885,22 +919,31 @@ function computeYaku(hand, ctx){
     if(allHonor) sList.push({name:'자일색', han:13, yakuman:true});
     if(allTerminal) sList.push({name:'청노두', han:13, yakuman:true});
     if(dragonTriplets===3) sList.push({name:'대삼원', han:13, yakuman:true});
-    if(windTriplets===4) sList.push({name:'대사희', han:26, yakuman:true});
+    if(windTriplets===4) sList.push({name:'대사희', han: dbl ? 26 : 13, yakuman:true});
     else if(windTriplets===3 && pair.tile>=27 && pair.tile<31) sList.push({name:'소사희', han:13, yakuman:true});
-    if(allTriplets && ctx.closed) sList.push({name:'사암각', han:13, yakuman:true});
+    if(allTriplets && ctx.closed){
+      // 단기 대기(화료패가 머리) = 사암각 단기 → 2배역 룰이 켜져 있으면 2배 역만
+      const tanki = dbl && ctx.winTileIdx!=null && ctx.winTileIdx===pair.tile;
+      sList.push(tanki ? {name:'사암각 단기', han:26, yakuman:true} : {name:'사암각', han:13, yakuman:true});
+    }
     if(allGreen) sList.push({name:'녹일색', han:13, yakuman:true});
     if(ctx.kanCount===4) sList.push({name:'사깡즈', han:13, yakuman:true});
     if(chinitsu && ctx.closed && fixed.length===0){
       const suitIdx = [...suitsUsed][0];
       const base = suitIdx*9;
       const required = [3,1,1,1,1,1,1,1,3];
-      let matches = true, extra = 0;
+      let matches = true, extra = 0, extraRank = -1;
       for(let r=0;r<9;r++){
         const c = counts[base+r];
         if(c < required[r]){ matches=false; break; }
+        if(c > required[r]) extraRank = r;
         extra += c - required[r];
       }
-      if(matches && extra===1) sList.push({name:'구련보등', han:13, yakuman:true});
+      if(matches && extra===1){
+        // 화료패가 "남는 한 장"이면 승리 직전이 1112345678999 그대로 = 9면 대기(순정) → 2배 역만
+        const pure = dbl && ctx.winTileIdx!=null && (ctx.winTileIdx-base)===extraRank;
+        sList.push(pure ? {name:'순정 구련보등', han:26, yakuman:true} : {name:'구련보등', han:13, yakuman:true});
+      }
     }
 
     if(sList.some(y=>y.yakuman)){
@@ -1593,6 +1636,7 @@ function render(){
   renderHand();
   renderMelds();
   syncMenzenUI();
+  renderGameStatus();
 
   // 리치는 멘젠 전제 조건이라, 멘젠이 꺼지면 리치도 자동으로 꺼요
   if(!isMenzen() && state.riichi){
@@ -2043,7 +2087,7 @@ function renderWaits(counts13){
       preview.style.color = 'var(--text-faint)';
       preview.style.fontWeight = '400';
     } else if(res.yakuman){
-      preview.textContent = '역만!';
+      preview.textContent = res.han>=26 ? `${Math.round(res.han/13)}배 역만!` : '역만!';
     } else {
       const topName = res.list[0] ? res.list[0].name : '';
       preview.textContent = `${res.han}판` + (topName ? ` · ${topName}` : '') + (res.list.length>1?' 외':'');
@@ -2105,6 +2149,7 @@ function buildScoreCtx(winTileIdx){
     dora: Number(state.dora)||0,
     winTileIdx: winTileIdx,
     situational: state.situational,
+    doubleYakuman: state.doubleYakuman,
     kanCount: Math.max(Number(state.kanCount)||0, kansFromMelds) // 울음 세트의 깡을 자동으로 세고, 직접 입력한 값과 큰 쪽을 써요
   };
 }
@@ -2398,6 +2443,12 @@ document.getElementById('riichiSwitch').addEventListener('click', function(){
   this.classList.toggle('on', state.riichi);
   render();
 });
+document.getElementById('doubleYakumanSwitch').addEventListener('click', function(){
+  state.doubleYakuman = !state.doubleYakuman;
+  this.classList.toggle('on', state.doubleYakuman);
+  render();
+});
+
 /* ───── 숫자 입력: 직접 입력 + [▼][▲] 버튼 ───── */
 const NUM_FIELDS = {
   honbaInput:{ key:'honba',    min:0, max:20, pre:'honba' },
@@ -2990,6 +3041,7 @@ function syncControlsFromState(){
   setSegActive('seatWindSeg', state.seatWind);
   setSegActive('tsumoRonSeg', state.method);
   setSegActive('playerCountSeg', state.playerCount);
+  document.getElementById('doubleYakumanSwitch').classList.toggle('on', !!state.doubleYakuman);
   document.getElementById('doraInput').value = state.dora;
   document.getElementById('honbaInput').value = state.honba;
   document.getElementById('kanInput').value = state.kanCount;
@@ -2998,7 +3050,7 @@ function syncControlsFromState(){
 function resetAllState(){
   state.hand = []; state.melds = []; state.meldPool = []; poolSelected = [];
   state.riichi = false; state.menzen = true; state.isDealer = false; state.method = 'ron';
-  state.roundWind = 1; state.seatWind = 1; state.playerCount = 4;
+  state.roundWind = 1; state.seatWind = 1; state.playerCount = 4; state.doubleYakuman = true;
   state.dora = 0; state.honba = 0; state.kanCount = 0; state.winTile = null;
   Object.keys(state.situational).forEach(k=>{ state.situational[k] = false; });
 }
@@ -3018,10 +3070,10 @@ const PRESETS = [
     note:'7쌍 대기예요. 東 한 장이 대기패고, 치토이츠 2판 + 혼노두가 붙는지 확인해보세요.',
     sc:{ hand:['m1','m1','m5','m5','p3','p3','p8','p8','s2','s2','s9','s9','z1'] } },
   { id:'chuuren', name:'구련보등 대기 (13장)',
-    note:'1112345678999 형태라 만수 1~9 전부 대기예요. 어느 패로 화료해도 구련보등(역만)이에요.',
+    note:'1112345678999 형태라 만수 1~9 전부 대기(9면 대기)예요. 어느 패로 화료해도 순정 구련보등이고, 2배역 룰이 켜져 있으면 2배 역만, 끄면 보통 역만이에요.',
     sc:{ hand:['m1','m1','m1','m2','m3','m4','m5','m6','m7','m8','m9','m9','m9'] } },
   { id:'kokushi', name:'국사무쌍 13면 대기 (13장)',
-    note:'13종 전부 대기라 대기패가 13개 나와요.',
+    note:'13종 전부 대기(13면 대기)라 대기패가 13개 나와요. 2배역 룰이 켜져 있으면 어느 패로 화료해도 2배 역만이에요.',
     sc:{ hand:['m1','m9','p1','p9','s1','s9','z1','z2','z3','z4','z5','z6','z7'] } },
   { id:'daisangen', name:'대삼원 완성 (14장, 역만)',
     note:'삼원패 삼각 3개예요. 화료 패는 3만으로 골라져 있고, 역만 점수가 나와요.',
@@ -3140,6 +3192,66 @@ function applyHandOnly(sc){
   });
   showNote();
 })();
+
+/* ===================== 게임 진행 (새 게임 / 연장 / 턴넘기기) ===================== */
+const WIND_NAMES = ['동','남','서','북'];
+const nextWind = w => (w % 4) + 1;          // 동→남→서→북→동
+const prevWind = w => ((w + 2) % 4) + 1;    // 오야가 넘어가면 자리 바람은 한 칸 앞으로: 동→북, 남→동, 서→남, 북→서
+const kyokuOfSeat = seat => ({ 1:1, 4:2, 3:3, 2:4 })[seat]; // 내 자리가 동이면 1국, 북이면 2국, 서면 3국, 남이면 4국
+
+// 이번 판 정보(손패·울음·도라·깡·리치·상황역·화료패)만 비워요. 바람/연장/룰은 그대로 둬요
+function resetHandState(){
+  state.hand = []; state.melds = []; state.meldPool = []; poolSelected = [];
+  state.riichi = false; state.menzen = true; state.method = 'ron';
+  state.dora = 0; state.kanCount = 0; state.winTile = null;
+  Object.keys(state.situational).forEach(k=>{ state.situational[k] = false; });
+  document.getElementById('apiError').innerHTML = '';
+}
+function gameStatusText(){
+  return `${WIND_NAMES[state.roundWind-1]} ${kyokuOfSeat(state.seatWind)}국 · 연장 ${state.honba} · 내 자리 ${WIND_NAMES[state.seatWind-1]}${state.isDealer ? ' (오야)' : ''}`;
+}
+function renderGameStatus(){
+  document.getElementById('gameStatus').textContent = gameStatusText();
+}
+function confirmGameAction(msg){
+  const dirty = state.hand.length>0 || state.melds.length>0 || state.meldPool.length>0;
+  return dirty ? confirm(msg) : true; // 지울 손패가 없으면 묻지 않고 바로 넘어가요
+}
+function setGameNote(t){ document.getElementById('gameNote').textContent = t; }
+
+function startNewGame(){
+  if(!confirm('새 게임을 시작할까요?\n손패·울음·바람·연장·마작 룰까지 모두 처음 상태로 돌아가요.')) return false;
+  resetAllState(); syncControlsFromState();
+  document.getElementById('apiError').innerHTML = '';
+  setGameNote('새 게임을 시작했어요.');
+  render();
+  return true;
+}
+function startRenchan(){
+  if(!confirmGameAction('연장으로 넘어갈까요?\n연장이 +1 되고, 손패·울음 구역·도라·리치 같은 이번 판 정보는 비워져요.')) return false;
+  resetHandState();
+  state.honba = Math.min(20, state.honba + 1);
+  syncControlsFromState();
+  setGameNote(`연장! 바람은 그대로예요 → ${gameStatusText()}`);
+  render();
+  return true;
+}
+function startNextTurn(){
+  if(!confirmGameAction('턴을 넘길까요?\n자리 바람(필요하면 판 바람도)이 다음으로 넘어가고, 연장과 이번 판 정보는 모두 비워져요.')) return false;
+  const beforeRound = state.roundWind;
+  resetHandState();
+  state.honba = 0;
+  state.seatWind = prevWind(state.seatWind);
+  state.isDealer = (state.seatWind === 1);                 // 내 자리가 동이 되면 내가 오야
+  if(state.seatWind === 1) state.roundWind = nextWind(state.roundWind); // 한 바퀴 돌아서 동이 되면 판 바람 갱신
+  syncControlsFromState();
+  setGameNote(`턴을 넘겼어요${state.roundWind!==beforeRound ? ' (판 바람이 '+WIND_NAMES[state.roundWind-1]+'으로 바뀌었어요)' : ''} → ${gameStatusText()}`);
+  render();
+  return true;
+}
+document.getElementById('btnNewGame').addEventListener('click', startNewGame);
+document.getElementById('btnRenchan').addEventListener('click', startRenchan);
+document.getElementById('btnNextTurn').addEventListener('click', startNextTurn);
 
 /* ===================== 초기화 ===================== */
 buildTileSprites();
