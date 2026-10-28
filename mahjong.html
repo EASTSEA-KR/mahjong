@@ -52,6 +52,7 @@
     font-family:'Noto Serif KR', serif; font-weight:700; font-size: 26px; letter-spacing: -0.3px;
     margin: 0 0 6px; color: var(--ivory);
   }
+  header p.notice{ margin-top:6px; font-size:12.5px; color:var(--text-faint); }
   header p{ margin:0; color: var(--text-dim); font-size: 13.5px; line-height:1.6; }
 
   .card{
@@ -65,6 +66,8 @@
     font-family:'Noto Serif KR', serif; font-weight:700; font-size:15px; color: var(--gold-bright);
     margin: 0 0 12px; display:flex; align-items:center; gap:8px;
   }
+  .card-title .n.ok{ color:#9be3a5; }
+  .card-title .n.bad{ color:var(--red-bright); }
   .card-title .n{ color: var(--text-faint); font-weight:400; font-size:12px; font-family:'Noto Sans KR',sans-serif; }
 
   /* buttons */
@@ -215,9 +218,10 @@
 
   /* 인식 영역 지정 화면 */
   .sel{ background:#0d1712; border:1px solid var(--line); color:var(--text); border-radius:7px; padding:9px 8px; font-size:13px; font-family:'Noto Sans KR',sans-serif; flex:1; min-width:0; }
-  details.card > summary{ list-style:none; }
+  details.card > summary{ list-style:none; cursor:pointer; }
+  details.card:not([open]) > summary{ margin-bottom:0; }
   details.card > summary::-webkit-details-marker{ display:none; }
-  details.card > summary::after{ content:'▾'; float:right; color:var(--text-faint); }
+  details.card > summary::after{ content:'▾'; margin-left:auto; color:var(--text-faint); }
   details.card[open] > summary::after{ content:'▴'; }
   /* 추천 버릴 패 */
   .dc{ border-bottom:1px solid var(--line-soft); padding:12px 0; }
@@ -270,7 +274,25 @@
   <header>
     <h1>마작 손패 분석</h1>
     <p>손패 사진을 찍으면 노릴 역, 버릴 패, 화료 점수를 알려드려요.</p>
+    <p class="notice">※ 다른 플레이어의 버림패나 울음패는 참고하지 않아요. 내 손패와 내 울음 세트만 보고 계산하기 때문에, 남은 패 수(대기·유효패 장수)는 실제와 다를 수 있어요.</p>
   </header>
+
+  <details class="card" open>
+    <summary class="card-title">마작 룰</summary>
+    <div class="switch-sub" style="margin-bottom:6px;">참가 인원</div>
+    <div class="seg" id="playerCountSeg">
+      <button data-v="3">3인</button>
+      <button data-v="4" class="active">4인</button>
+    </div>
+    <div class="count-note" style="margin-top:8px;">점수 계산 시 인당 지불 금액에만 반영돼요. 패 구성(만수 1~9 전체 사용 등)은 4인 기준 그대로예요.</div>
+    <div class="switch-row" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div style="padding-right:10px;">
+        <div class="switch-label">2배역(더블 역만) 인정</div>
+        <div class="switch-sub">대사희 · 국사무쌍 13면 대기 · 사암각 단기 · 순정 구련보등(9면 대기)을 2배 역만으로 계산해요. 끄면 모두 보통 역만이에요.</div>
+      </div>
+      <div class="switch on" id="doubleYakumanSwitch"><div class="knob"></div></div>
+    </div>
+  </details>
 
   <div class="card" id="gameCard">
     <div class="card-title">게임 진행</div>
@@ -292,24 +314,7 @@
     </details>
   </div>
 
-  <div class="card">
-    <div class="card-title">마작 룰</div>
-    <div class="switch-sub" style="margin-bottom:6px;">참가 인원</div>
-    <div class="seg" id="playerCountSeg">
-      <button data-v="3">3인</button>
-      <button data-v="4" class="active">4인</button>
-    </div>
-    <div class="count-note" style="margin-top:8px;">점수 계산 시 인당 지불 금액에만 반영돼요. 패 구성(만수 1~9 전체 사용 등)은 4인 기준 그대로예요.</div>
-    <div class="switch-row" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
-      <div style="padding-right:10px;">
-        <div class="switch-label">2배역(더블 역만) 인정</div>
-        <div class="switch-sub">대사희 · 국사무쌍 13면 대기 · 사암각 단기 · 순정 구련보등(9면 대기)을 2배 역만으로 계산해요. 끄면 모두 보통 역만이에요.</div>
-      </div>
-      <div class="switch on" id="doubleYakumanSwitch"><div class="knob"></div></div>
-    </div>
-  </div>
-
-  <div class="card">
+    <div class="card">
     <div class="two-col">
       <div>
         <div class="card-title" style="margin-bottom:10px;">바람 정보</div>
@@ -362,8 +367,8 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-title">손패 인식</div>
+  <details class="card" open>
+    <summary class="card-title">손패 인식 <span class="n" id="modelStatus">사진인식 준비중</span></summary>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnCamera">📷 카메라로 촬영</button>
       <button class="btn btn-ghost" id="btnUpload">사진 업로드</button>
@@ -372,7 +377,7 @@
     <input type="file" id="uploadInput" accept="image/*">
     <div class="count-note" style="margin-top:8px;">사진을 찍거나 고르면 <b>"인식할 영역"</b>을 지정하는 화면이 떠요. 손패(파랑)와 울음구역(주황)을 패가 크게 보이도록 좁게 맞춰주세요.</div>
     <div id="apiError"></div>
-  </div>
+  </details>
 
   <div class="card">
     <div class="card-title">현재 손패 <span class="n" id="handCountLabel"></span></div>
@@ -416,13 +421,19 @@
     </div>
   </div>
 
-  <div class="card" id="candidateCard" style="display:none;">
-    <div class="card-title">노릴만한 역 후보</div>
-    <div id="candidateList"></div>
+  <div class="card" id="waitCard" style="display:none;">
+    <div class="card-title">텐파이 — 대기 패</div>
+    <div class="wait-grid" id="waitGrid"></div>
+    <div class="count-note" style="margin-top:10px;">판수는 지금 설정된 오야·멘젠·리치·바람 기준이고, 화료 방식은 론(또는 설정해둔 값)으로 계산한 참고용이에요. 도라·화료 방식·상황역은 손패가 완성되면 나오는 "화료 옵션"에서 설정해요 (설정해둔 값은 여기 미리보기에도 반영돼요).</div>
   </div>
 
-  <div class="card" id="discardCard" style="display:none;">
-    <div class="card-title">추천 버릴 패</div>
+  <details class="card" open id="candidateCard" style="display:none;">
+    <summary class="card-title">노릴만한 역 후보</summary>
+    <div id="candidateList"></div>
+  </details>
+
+  <details class="card" open id="discardCard" style="display:none;">
+    <summary class="card-title">추천 버릴 패</summary>
     <div class="count-note" id="discardIntro" style="margin:0 0 8px;"></div>
     <div id="discardTip"></div>
     <div id="discardList"></div>
@@ -438,15 +449,9 @@
         <b>판수</b> : 역의 점수 단위예요. 높을수록 점수가 커요.
       </div>
     </details>
-  </div>
+  </details>
 
-  <div class="card" id="waitCard" style="display:none;">
-    <div class="card-title">텐파이 — 대기 패</div>
-    <div class="wait-grid" id="waitGrid"></div>
-    <div class="count-note" style="margin-top:10px;">판수는 지금 설정된 오야·멘젠·리치·바람 기준 참고용이에요. 도라·화료 방식·상황역은 손패가 완성되면 나오는 "화료 옵션"에서 설정해요 (설정해둔 값은 여기 미리보기에도 반영돼요).</div>
-  </div>
-
-  <div class="card" id="completeCard" style="display:none;">
+    <div class="card" id="completeCard" style="display:none;">
     <div class="card-title">화료 옵션</div>
     <div class="switch-sub" style="margin-bottom:6px;">화료 패 (정확한 점수 계산을 위해 선택)</div>
     <div class="hand-row" id="winTilePicker"></div>
@@ -477,7 +482,7 @@
     <div id="scoreResult"></div>
   </div>
 
-  <details class="card" id="testCard">
+  <details class="card" id="testCard" style="display:none;">
     <summary class="card-title" style="cursor:pointer; margin:0;">테스트 모드 — 사진 없이 시나리오 불러오기</summary>
     <div style="margin-top:14px;">
       <div class="switch-sub" style="margin-bottom:6px;">예시 시나리오 (바람·리치·도라 같은 설정까지 같이 채워져요)</div>
@@ -508,13 +513,7 @@
     </div>
   </details>
 
-  <div class="card">
-    <div class="card-title">인식 모델 상태</div>
-    <div id="modelStatus" class="count-note">모델을 불러오는 중...</div>
-  </div>
-
-
-  <footer>
+    <footer>
     이 도구는 참고용 보조 계산기예요. 울음 구역(치·퐁·깡으로 뺀 패)은 아직 사진으로 자동 인식되지 않아서, 멘젠 여부·깡 개수는 직접 입력해주셔야 해요. 일발·천화·지화 등 사진만으로 알 수 없는 상황역도 직접 토글해주세요. 실제 판정은 함께하는 분들과 확인해주세요.<br><br>
     패 인식 모델은 <a href="https://universe.roboflow.com/personal-ef39c/mahjong-tiles-model" target="_blank" style="color:var(--text-faint);">Mahjong Tiles Model (Roboflow Universe, CC BY 4.0)</a> 데이터셋으로 학습했어요.
   </footer>
@@ -793,6 +792,25 @@ function waitingTiles(counts13, fixedMelds, extraCounts){
 
 /* ===================== 완성패 분해 & 역 판정 ===================== */
 // need: 손패에서 찾아야 하는 멘츠 수 (울음 세트가 k개면 4-k)
+// 가능한 모든 분해(4멘츠+1페어)를 돌려줘요. 같은 손패도 해석이 여럿일 수 있어서, 가장 점수가 높은 해석을 고르려고 써요
+function findAllDecompositions(counts, need, limit){
+  need = (need===undefined) ? 4 : need;
+  limit = limit || 12;
+  const c = counts.slice();
+  const results = [];
+  function rec(i, melds, pair){
+    if(results.length>=limit) return;
+    if(i===34){ if(melds.length===need && pair) results.push({ melds: melds.slice(), pair }); return; }
+    if(c[i]===0){ rec(i+1,melds,pair); return; }
+    if(c[i]>=3){ c[i]-=3; melds.push({type:'triplet', tile:i}); rec(i,melds,pair); melds.pop(); c[i]+=3; }
+    if(i<27 && i%9<=6 && c[i+1]>0 && c[i+2]>0){
+      c[i]--;c[i+1]--;c[i+2]--; melds.push({type:'run', tile:i}); rec(i,melds,pair); melds.pop(); c[i]++;c[i+1]++;c[i+2]++;
+    }
+    if(!pair && c[i]>=2){ c[i]-=2; rec(i,melds,{tile:i}); c[i]+=2; }
+  }
+  rec(0,[],null);
+  return results;
+}
 function findDecomposition(counts, need){
   need = (need===undefined) ? 4 : need;
   const c = counts.slice();
@@ -855,7 +873,7 @@ function computeYaku(hand, ctx){
   if(ctx.situational && ctx.situational.tenhou) list.push({name:'천화', han:13, yakuman:true});
   else if(ctx.situational && ctx.situational.chiihou) list.push({name:'지화', han:13, yakuman:true});
 
-  if(fixed.length===0 && isKokushi(counts)){
+  if(fixed.length===0 && ctx.closed!==false && isKokushi(counts)){
     // 13면 대기(대기가 13종 전부였던 경우) = 화료패가 짝이 된 패 → 2배역 룰이 켜져 있으면 2배 역만
     const pairIdx = counts.findIndex(c=>c===2);
     const is13wait = dbl && ctx.winTileIdx!=null && ctx.winTileIdx===pairIdx;
@@ -867,9 +885,10 @@ function computeYaku(hand, ctx){
   // 손패가 "표준형(4멘츠+1페어)"과 "치토이츠(7쌍)"로 동시에 해석 가능한 경우가 있어요.
   // (예: 1123456789p 패턴처럼 량페코 모양이 치토이츠 모양이기도 한 경우)
   // 이럴 땐 더 높은 점수가 나오는 해석을 채택하는 게 마작 기본 규칙이에요.
-  const chiitoiPossible = fixed.length===0 && isChiitoi(counts);
-  const found = findDecomposition(counts, 4 - fixed.length);
-  const decomposition = found ? { melds: [...fixed, ...found.melds], pair: found.pair } : null;
+  // 치토이츠·국사무쌍은 멘젠 전용이라, 멘젠이 꺼져 있으면(울었으면) 성립하지 않아요
+  const chiitoiPossible = fixed.length===0 && ctx.closed!==false && isChiitoi(counts);
+  const decompositions = findAllDecompositions(counts, 4 - fixed.length).map(f=>({ melds:[...fixed, ...f.melds], pair:f.pair }));
+  const decomposition = decompositions[0] || null;
   if(!chiitoiPossible && !decomposition){
     return { list: [], han:0, yakuman:false, decomposition:null, chiitoi:false, invalid:true };
   }
@@ -897,10 +916,13 @@ function computeYaku(hand, ctx){
   if(sit.houtei) commonList.push({name:'하저로어', han:1});
 
   // ---------- 표준형(4멘츠+1페어) 해석 ----------
+  const buildStandard = (decomposition)=>{
   let standardResult = null;
   if(decomposition){
     const sList = [...list, ...commonList];
     const melds = decomposition.melds, pair = decomposition.pair;
+    // 론이면 화료패가 완성한 삼각(샤보 대기)은 암각이 아니에요. 쯔모면 암각이에요. (화료패를 아직 모르면 암각으로 가정)
+    const ronTriplet = (!ctx.tsumo && ctx.winTileIdx!=null) && melds.some(m=>m.type==='triplet' && !m.fixed && m.tile===ctx.winTileIdx);
     const allRuns = melds.every(m=>m.type==='run');
     const allTriplets = melds.every(m=>m.type==='triplet');
 
@@ -917,7 +939,7 @@ function computeYaku(hand, ctx){
     if(dragonTriplets===3) sList.push({name:'대삼원', han:13, yakuman:true});
     if(windTriplets===4) sList.push({name:'대사희', han: dbl ? 26 : 13, yakuman:true});
     else if(windTriplets===3 && pair.tile>=27 && pair.tile<31) sList.push({name:'소사희', han:13, yakuman:true});
-    if(allTriplets && ctx.closed){
+    if(allTriplets && ctx.closed && !ronTriplet){
       // 단기 대기(화료패가 머리) = 사암각 단기 → 2배역 룰이 켜져 있으면 2배 역만
       const tanki = dbl && ctx.winTileIdx!=null && ctx.winTileIdx===pair.tile;
       sList.push(tanki ? {name:'사암각 단기', han:26, yakuman:true} : {name:'사암각', han:13, yakuman:true});
@@ -983,7 +1005,7 @@ function computeYaku(hand, ctx){
       if(allTermHonorHand) sList.push({name:'혼노두(혼전두)', han:2});
 
       // 삼암각: 손패에서 나온 삼각 + 안깡만 "암각"이에요 (퐁·명깡은 제외)
-      const concealedTriplets = melds.filter(m=>m.type==='triplet' && (!m.fixed || m.concealed)).length;
+      const concealedTriplets = melds.filter(m=>m.type==='triplet' && (!m.fixed || m.concealed) && !(ronTriplet && !m.fixed && m.tile===ctx.winTileIdx)).length;
       if(concealedTriplets===3) sList.push({name:'삼암각', han:2});
 
       for(let n=0;n<9;n++){
@@ -1025,6 +1047,16 @@ function computeYaku(hand, ctx){
       standardResult = { list: sList, han, yakuman:false, decomposition, chiitoi:false, hasYaku: sList.some(y=>y.name!=='도라') };
     }
   }
+  return standardResult;
+  };
+  // 해석이 여러 개면 점수(판수 → 부수)가 가장 높은 것을 골라요
+  let standardResult = null, bestKey = null;
+  decompositions.forEach(d=>{
+    const r = buildStandard(d);
+    if(!r) return;
+    const key = [r.han, r.yakuman ? 0 : computeFu(hand, r, ctx)];
+    if(!bestKey || key[0]>bestKey[0] || (key[0]===bestKey[0] && key[1]>bestKey[1])){ standardResult = r; bestKey = key; }
+  });
 
   // ---------- 치토이츠(7쌍) 해석 ----------
   let chiitoiResult = null;
@@ -1268,10 +1300,12 @@ function candidateYaku(handCounts, handLen){
   // 토이토이 / 치토이츠
   let pairTypes=0, tripletTypes=0;
   for(let i=0;i<34;i++){ if(counts[i]===2) pairTypes++; if(counts[i]>=3) tripletTypes++; }
-  if(pairTypes+tripletTypes>=3){
+  const hasChi = em.some(m=>m.type==='run');            // 치가 있으면 토이토이는 불가능해요
+  const canChiitoi = em.length===0 && isMenzen();         // 치토이츠는 멘젠 전용이에요
+  if(!hasChi && pairTypes+tripletTypes>=3){
     const groups = [];
     for(let i=0;i<34;i++){ const c=handCounts[i]; if(c>=2) groups.push({ held:rep(i,c), need: c===2 ? [code(i)] : [] }); }
-    list.push({ key:'toitoi', shortName:'토이토이', name: em.length>0 ? '토이토이 후보' : '토이토이 / 치토이츠 후보',
+    list.push({ key:'toitoi', shortName:'토이토이', name: canChiitoi ? '토이토이 / 치토이츠 후보' : '토이토이 후보',
       desc:'짝을 맞춘 패가 많이 보여요',
       visual: groups.length ? { label:'모은 짝 (같은 패를 한 장씩 더 모으면 삼각이 돼요)', groups } : null });
   }
@@ -1628,7 +1662,23 @@ function confirmPoolMeld(type, concealed){
   render();
 }
 
+// 주소 뒤에 ?test 를 붙이면 숨겨진 카드(상태에 따라 나오는 카드 + 테스트 모드)를 전부 보여줘요
+function isTestMode(){
+  try{ return /(^|[?&])test(=|&|$)/.test(location.search); }catch(e){ return false; }
+}
+function applyTestVisibility(){
+  const testCard = document.getElementById('testCard');
+  if(!isTestMode()){ testCard.style.display = 'none'; return; }
+  ['candidateCard','discardCard','waitCard','completeCard','scoreCard','testCard'].forEach(id=>{
+    document.getElementById(id).style.display = 'block';
+  });
+  renderSituationalToggles(); renderWinTilePicker(); // 비어 보이지 않게 그려둬요
+}
 function render(){
+  renderCore();
+  applyTestVisibility();
+}
+function renderCore(){
   renderHand();
   renderMelds();
   syncMenzenUI();
@@ -2530,19 +2580,29 @@ function classLabelToCode(label){
   return suit + rank; // "7z" -> "z7"
 }
 
+// 사진 인식 상태: 손패 인식 카드 제목 옆에 짧게만 보여줘요
+let modelState = 'preparing', modelError = '';
+function setModelStatus(kind, detail){
+  modelState = kind;
+  const labels = { preparing:'사진인식 준비중', ready:'사진인식 준비 완료', failed:'사진인식 불가능' };
+  modelStatusEl.textContent = labels[kind];
+  modelStatusEl.className = 'n ' + (kind==='ready' ? 'ok' : kind==='failed' ? 'bad' : '');
+  modelStatusEl.title = detail || '';
+  modelError = (kind==='failed') ? (detail||'') : '';
+}
 async function loadModel(){
+  setModelStatus('preparing');
   try{
     if(typeof ort === 'undefined'){
       throw new Error('onnxruntime-web 라이브러리를 불러오지 못했어요 (인터넷 연결이 필요한 최초 1회 로딩)');
     }
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/';
-    modelStatusEl.textContent = '모델을 불러오는 중... (처음 한 번만 시간이 걸려요)';
     ortSession = await ort.InferenceSession.create(MODEL_URL, { executionProviders: ['wasm'] });
     console.log('모델 입력:', ortSession.inputNames, '출력:', ortSession.outputNames);
-    modelStatusEl.textContent = '모델 준비 완료 — 이제부터는 인터넷 없이도 인식할 수 있어요.';
+    setModelStatus('ready');
   } catch(err){
     console.error(err);
-    modelStatusEl.innerHTML = `<span style="color:var(--red-bright);">모델을 불러오지 못했어요 (${err.message}). mahjong-tile-model.onnx 파일이 이 HTML과 같은 폴더에 있는지 확인해주세요. 그 전까지는 아래 + 버튼으로 직접 패를 입력할 수 있어요.</span>`;
+    setModelStatus('failed', err.message);
   }
 }
 
@@ -2922,7 +2982,9 @@ async function handleImage(file){
   const errBox = document.getElementById('apiError');
   errBox.innerHTML='';
   if(!ortSession){
-    errBox.innerHTML = `<div class="warn-box">인식 모델이 아직 준비되지 않았어요. 위쪽 "인식 모델 상태"를 확인해주세요.</div>`;
+    errBox.innerHTML = modelState==='failed'
+      ? `<div class="warn-box">지금은 사진 인식을 쓸 수 없어요${modelError ? ' (원인: '+modelError+')' : ''}. mahjong-tile-model.onnx 파일이 이 페이지와 같은 위치에 있는지 확인해 주세요. 그동안은 손패의 + 버튼으로 직접 입력할 수 있어요.</div>`
+      : `<div class="warn-box">사진 인식을 준비하는 중이에요. 잠시 후 다시 시도해 주세요.</div>`;
     cameraInput.value=''; uploadInput.value='';
     return;
   }
